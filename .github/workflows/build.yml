@@ -110,9 +110,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: [ openwrt-24.10, SNAPSHOT ]
+        branch: [ openwrt-24.10 ]
         arch:
           - aarch64_cortex-a53
+          - aarch64_cortex-a53_neon-vfpv4
         isTestOrFake:
           - ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }}
         exclude:
@@ -123,8 +124,6 @@ jobs:
           - branch: openwrt-24.10
             arch: x86_64
           - branch: openwrt-24.10
-            arch: aarch64_cortex-a53
-          - branch: SNAPSHOT
             arch: aarch64_cortex-a53
     container:
       image: openwrt/sdk:${{ matrix.arch }}-${{ matrix.branch }}
