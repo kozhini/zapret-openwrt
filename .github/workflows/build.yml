@@ -113,7 +113,6 @@ jobs:
         branch: [ openwrt-24.10 ]
         arch:
           - aarch64_cortex-a53
-          - aarch64_cortex-a53_neon-vfpv4
         isTestOrFake:
           - ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }}
         exclude:
