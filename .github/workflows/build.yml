@@ -113,7 +113,6 @@ jobs:
         branch: [ openwrt-24.10 ]
         arch:
           - aarch64_cortex-a53
-          - x86_64
         isTestOrFake:
           - ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }}
         exclude:
@@ -319,8 +318,7 @@ jobs:
           body: |
             zapret v${{ needs.build.outputs.pkgver }} for OpenWrt
             
-            Individual IPK package files for different architectures:
-            - Files with `x86_64_` prefix are for x86_64 architecture
-            - Files with `aarch64_cortex-a53_` prefix are for aarch64_cortex-a53 architecture
+            Individual IPK package files for aarch64_cortex-a53 architecture:
+            - All files with `aarch64_cortex-a53_` prefix are for aarch64_cortex-a53 architecture
             - All files are `.ipk` packages for OpenWrt 24.10
           files: ./release_files/*
