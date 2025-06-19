@@ -38,32 +38,34 @@ function set_cfg_default_values
 		set $cfgname.config.NFQWS_PORTS_TCP_KEEPALIVE='0'
 		set $cfgname.config.NFQWS_PORTS_UDP_KEEPALIVE='0'
 		set $cfgname.config.NFQWS_OPT="
-			--filter-tcp=80 <HOSTLIST>
-			--dpi-desync=fake,fakedsplit
-			--dpi-desync-autottl=2
-			--dpi-desync-fooling=md5sig
+ 			--filter-tcp=80
+			--dpi-desync=fake,multisplit
+  			--dpi-desync-ttl=0
+			--dpi-desync-fooling=md5sig,badsum
+   			--dpi-desync-fake-http=/opt/zapret/files/fake/dht_get_peers.bin <HOSTLIST>
 			--new
-			--filter-tcp=443 --hostlist=/opt/zapret/ipset/zapret-hosts-google.txt
+			--filter-tcp=443
 			--dpi-desync=fake,multidisorder
-			--dpi-desync-split-pos=1,midsld
-			--dpi-desync-repeats=11
-			--dpi-desync-fooling=md5sig
-			--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin
+			--dpi-desync-split-pos=method+2,midsld,5
+			--dpi-desync-ttl=0
+			--dpi-desync-fooling=md5sig,badsum,badseq
+			--dpi-desync-repeats=15
+			--dpi-desync-any-protocol
+			--dpi-desync-cutoff=d4
+			--dpi-desync-fake-tls=/opt/zapret/files/fake/dht_get_peers.bin <HOSTLIST>
 			--new
-			--filter-udp=443 --hostlist=/opt/zapret/ipset/zapret-hosts-google.txt
+			--filter-udp=443
 			--dpi-desync=fake
-			--dpi-desync-repeats=11
-			--dpi-desync-fake-quic=/opt/zapret/files/fake/quic_initial_www_google_com.bin
+			--dpi-desync-repeats=15
+			--dpi-desync-ttl=0
+			--dpi-desync-any-protocol
+			--dpi-desync-cutoff=d4
+			--dpi-desync-fooling=md5sig,badsum
+			--dpi-desync-fake-quic=/opt/zapret/files/fake/dht_get_peers.bin <HOSTLIST>
 			--new
-			--filter-udp=443 <HOSTLIST_NOAUTO>
-			--dpi-desync=fake
-			--dpi-desync-repeats=11
-			--new
-			--filter-tcp=443 <HOSTLIST>
-			--dpi-desync=fake,multidisorder
-			--dpi-desync-split-pos=midsld
-			--dpi-desync-repeats=6
-			--dpi-desync-fooling=badseq,md5sig
+			--filter-udp=50000-50099
+			--filter-l7=discord,stun
+			--dpi-desync=fake <HOSTLIST>
 		"
 		# save changes
 		commit $cfgname
