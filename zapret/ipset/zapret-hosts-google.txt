@@ -11,3 +11,12 @@ youtube-nocookie.com
 youtube-ui.l.google.com
 yt-video-upload.l.google.com
 wide-youtube.l.google.com
+youtu.be
+youtube.googleapis.com
+yt.be
+withyoutube.com
+youtubeeducation.com
+youtubefanfest.com
+youtubegaming.com
+youtubekids.com
+youtubemobilesupport.com
