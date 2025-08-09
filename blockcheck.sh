@@ -396,6 +396,9 @@ check_system()
 			PKTWS="$WINWS"
 			PKTWSD=winws
 			FWTYPE=windivert
+			# ts fooling requires timestamps. they are disabled by default in windows.
+			echo enabling tcp timestamps
+			netsh interface tcp set global timestamps=enabled >/dev/null
 			;;
 		*)
 			echo $UNAME not supported
@@ -635,7 +638,11 @@ curl_with_subst_ip()
 	# $2 - port
 	# $3 - ip
 	# $4+ - curl params
-	local connect_to="--connect-to $1::[$3]${2:+:$2}" arg
+	local ip="$3"
+	case "$ip" in
+		*:*) ip="[$ip]" ;;
+	esac
+	local connect_to="--connect-to $1::$ip${2:+:$2}" arg
 	shift ; shift ; shift
 	[ "$CURL_VERBOSE" = 1 ] && arg="-v"
 	[ "$CURL_CMD" = 1 ] && echo $CURL ${arg:+$arg }$connect_to "$@"
@@ -1191,6 +1198,7 @@ warn_fool()
 				echo "WARNING ! fakedsplit/fakeddisorder with md5sig fooling and low split position causes MTU overflow with multi-segment TLS (kyber)"
 			;;
 		datanoack) echo 'WARNING ! although datanoack fooling worked it may break NAT and may only work with external IP. Additionally it may require nftables to work correctly.' ;;
+		ts) echo 'WARNING ! although ts fooling worked it will not work without timestamps being enabled in the client OS. In windows timestamps are DISABLED by default.'
 	esac
 }
 pktws_curl_test_update_vary()
@@ -1317,7 +1325,7 @@ pktws_check_domain_http_bypass_()
 			}
 			f=
 			[ "$UNAME" = "OpenBSD" ] || f="badsum"
-			f="$f badseq datanoack md5sig"
+			f="$f badseq datanoack ts md5sig"
 			[ "$IPV" = 6 ] && f="$f hopbyhop hopbyhop2"
 			for fooling in $f; do
 				ok=0
