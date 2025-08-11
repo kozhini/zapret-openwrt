@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret-tpws
-PKG_VERSION:=71.3
+PKG_VERSION:=71.3.1
 
 PKG_MAINTAINER:=bol-van
 PKG_LICENSE:=MIT
