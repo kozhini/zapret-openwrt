@@ -162,22 +162,33 @@ jobs:
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
 
+      - name: Setup ccache for eBPF
+        uses: actions/cache@v4
+        with:
+          path: /builder/package/zapret-openwrt/zapret-ebpf/ebpf
+          key: ebpf-${{ matrix.arch }}-${{ github.run_id }}
+          restore-keys: |
+            ebpf-${{ matrix.arch }}-
+
       - name: Build zapret-ebpf package
         working-directory: '/builder/package/zapret-openwrt/zapret-ebpf'
         run: |
           mkdir -p ebpf
           for f in src/*.bpf.c; do
             out=ebpf/$(basename $f .bpf.c).bpf.o
-            clang -O2 -target bpf -c $f -o $out || exit 1
+            if [ ! -f "$out" ]; then
+              clang -O2 -target bpf -c $f -o $out || exit 1
+            fi
           done
 
-          # Структура пакета zapret-ebpf
+          # Создаем структуру пакета
           mkdir -p ./files/usr/lib/zapret/ebpf
           cp ebpf/*.bpf.o ./files/usr/lib/zapret/ebpf/
           mkdir -p ./files/etc/init.d
           cp ../files/etc/init.d/zapret-ebpf ./files/etc/init.d/
           mkdir -p ./files/etc/config
           cp ../files/etc/config/zapret-ebpf ./files/etc/config/
+
 
       - name: Build packages        
         id: build
