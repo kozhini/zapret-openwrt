@@ -38,9 +38,9 @@ env:
   TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
   REPO_URL: https://github.com/kozhini/zapret-openwrt
   REPO_LNK: kozhini/zapret-openwrt
-  REPO_BRANCH: test
+  REPO_BRANCH: master
   BUILD_ROOT: ${{ github.workspace }}/builder
-  BUILD_DATE: 23-08-25
+  BUILD_DATE: unknown
   REPO_DATE: unknown
   LUCI_ARCH: aarch64_cortex-a53
 
@@ -65,7 +65,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Tag name from GITHUB_REF_NAME: $GITHUB_REF_NAME"
-          echo "Tag name from github.ref_name: ${{ github.ref_name }}"
           BRANCH=$(gh api repos/$REPO_LNK --jq '.default_branch')
           REPO_DATE=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.committer.date')
           BUILD_DATE=$( date --utc +'%Y%m%d' )
@@ -91,14 +90,9 @@ jobs:
         run: |
           TIMESTAMP=$(date --utc -d $REPO_DATE +%s)
           DAYS=$(( ( $(date --utc +%s) - $TIMESTAMP ) / 86400 ))
-          echo "Repository activity: $(date --utc -d $REPO_DATE)"
-          echo "Commit: $URL"
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            is_active=true
-          elif [[ $DAYS -lt 1 ]] ; then
+          if [ "${{ github.event_name }}" != "schedule" ] || [[ $DAYS -lt 1 ]]; then
             is_active=true
           else
-            echo "Repository not updated within last 24 hours."
             is_active=false
           fi
           echo "is_active=$is_active" >> $GITHUB_OUTPUT
@@ -128,15 +122,15 @@ jobs:
           repository: ${{ env.REPO_LNK }}
           path: zapret-openwrt
 
+      - name: Install clang for eBPF build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libelf-dev zlib1g-dev
+
       - name: Setup OpenWrt SDK
         working-directory: /builder
-        env:
-          BRANCH: ${{ matrix.branch }}
         shell: bash
         run: |
-          gpg --verbose --import <(wget -qO- 'https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc')
-          sed -i 's/gpg --/#gpg --/g' setup.sh
-          sed -r -i 's/^rm.+//' setup.sh
           ./setup.sh
           echo "PKGTYPE=ipk" >> $GITHUB_ENV
 
@@ -147,110 +141,43 @@ jobs:
           key: ccache-${{ matrix.arch }}-${{ matrix.branch }}-${{ github.run_id }}
           restore-keys: |
             ccache-${{ matrix.arch }}-${{ matrix.branch }}-
-            
-      - name: Install clang for eBPF build
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm libelf-dev zlib1g-dev
-
 
       - name: Init packages
         id: init
         working-directory: '/builder'
-        env:
-          FAKE_BUILD: ${{ env.FAKE_BUILD == 'true' || env.TEST_BUILD == 'true' }}
-          BUILD_DATE: ${{ needs.check.outputs.build_date }}
-          ARCH: ${{ matrix.arch }}
-          BRANCH: ${{ matrix.branch }}
-          SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
-          CCACHE_DIR: '/builder/.ccache'
         shell: bash
         run: |
           PKGDIR=$GITHUB_WORKSPACE/zapret-openwrt
           MKFN=$PKGDIR/luci-app-zapret/Makefile
           PKGVER=$( grep -s '^PKG_VERSION:=.*' $MKFN | cut -d'=' -f2 )
-          echo "PKG_VERSION = $PKGVER"
           cp -vr $PKGDIR ./package/zapret-openwrt/
-          
-          mv feeds.conf.default feeds.conf
-          sed -i -e 's|base.*\.git|base https://github.com/openwrt/openwrt.git|' feeds.conf
-          sed -i -e 's|packages.*\.git|packages https://github.com/openwrt/packages.git|' feeds.conf
-          sed -i -e 's|luci.*\.git|luci https://github.com/openwrt/luci.git|' feeds.conf
-          mkdir -p ./logs
-          
-          if [ "$FAKE_BUILD" = "false" ]; then
-              ./scripts/feeds update base packages luci
-              ./scripts/feeds install -a
-          fi
-          echo "FAKE_BUILD=$FAKE_BUILD" >> $GITHUB_ENV
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
           echo "PKGVER=$PKGVER" >> $GITHUB_ENV
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
-          echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Build packages        
+      - name: Build packages
         id: build
-        if: steps.init.outputs.status == 'success'
         working-directory: '/builder'
-        env:
-          BUILD_DATE: ${{ needs.check.outputs.build_date }}
-          ARCH: ${{ matrix.arch }}
-          BRANCH: ${{ matrix.branch }}
-          SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
-          CCACHE_DIR: '/builder/.ccache'
         shell: bash
         run: |
           MAKE_JOBS=$(($(nproc)+1))
-          echo "$MAKE_JOBS thread compile"
-          
-          if [ "$FAKE_BUILD" = "false" ]; then
-              make defconfig
-              sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
-              
-              # --- добавляем сборку eBPF пакета ---
-              echo "Building zapret-ebpf..."
-              make package/zapret-openwrt/zapret-ebpf/compile V=s CONFIG_CCACHE=1 || exit 1
-              
-              if [ "$ARCH" = "$LUCI_ARCH" ]; then
-                  PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-ebpf,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret}/compile`
-              else
-                  PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-ebpf,zapret-tpws,zapret-mdig,zapret-ip2net}/compile`
-              fi
-              
-              if [ "$MAX_SPEED" = "false" ]; then
-                  make $PKGLIST V=s CONFIG_CCACHE=1 BUILD_LOG=1
-              else
-                  make -j$MAKE_JOBS $PKGLIST CONFIG_CCACHE=1
-              fi
-          else
-              OUT_DIR=./bin/packages/dev_x/base
-              mkdir -p $OUT_DIR
-              touch $OUT_DIR/zapret_$PKGVER-$ARCH.ipk
-              touch $OUT_DIR/zapret-ebpf_$PKGVER-$ARCH.ipk
-              touch $OUT_DIR/luci-app-zapret_$PKGVER-all.ipk
-          fi
-          
-          find ./bin/packages/*/base -type f ! -regex ".*\(zapret\).*\.ipk$" -delete
-          
-          OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-$ARCH
+          make defconfig
+          sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
+          PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret}/compile`
+          make -j$MAKE_JOBS $PKGLIST CONFIG_CCACHE=1
+          OUTDIR=$GITHUB_WORKSPACE/ipk-${{ matrix.arch }}
           mkdir -p $OUTDIR
           cp -R ./bin/packages/*/base/. $OUTDIR/
-          ./staging_dir/host/bin/ccache --max-size=10M --show-stats
-          
           echo "OUTDIR=$OUTDIR" >> $GITHUB_ENV
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
-          echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Compress build logs
         if: always()
-        env:
-          ARCH: ${{ matrix.arch }}
-          BRANCH: ${{ matrix.branch }}
-          LOGS_DIR: '/builder/logs'
         run: |
-          tar -cJvf logs-$BRANCH-$ARCH.tar.xz $LOGS_DIR
+          tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz ./logs
 
       - name: Upload packages
-        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@main
         with:
           path: ${{ env.OUTDIR }}
@@ -276,11 +203,6 @@ jobs:
           pattern: zapret,ipk,*
 
       - name: Prepare package files for release
-        env:
-          TAG: ${{ needs.check.outputs.tag }}
-          DATE: ${{ needs.check.outputs.date }}
-          BUILD_DATE: ${{ needs.check.outputs.build_date }}
-          PKGVER: ${{ needs.build.outputs.pkgver }}
         run: |
           mkdir -p release_files
           find . -type f -name "*.ipk" | while read file; do
@@ -302,8 +224,4 @@ jobs:
           name: zapret v${{ needs.build.outputs.pkgver }}
           body: |
             zapret v${{ needs.build.outputs.pkgver }} for OpenWrt
-            
-            Individual IPK package files for aarch64_cortex-a53 architecture:
-            - All files with `aarch64_cortex-a53_` prefix are for aarch64_cortex-a53 architecture
-            - All files are `.ipk` packages for OpenWrt 24.10
           files: ./release_files/*
