@@ -28,8 +28,6 @@ on:
         - true
         - false
   push:
-    branches:
-      - test
     tags:
       - v[0-9]+*
 
@@ -94,7 +92,6 @@ jobs:
           if [ "${{ github.event_name }}" != "schedule" ] || [[ $DAYS -lt 1 ]]; then
             is_active=true
           else
-            echo "Repository not updated within last 24 hours."
             is_active=false
           fi
           echo "is_active=$is_active" >> $GITHUB_OUTPUT
@@ -105,11 +102,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: [ test ]
-        arch:
-          - aarch64_cortex-a53
-        isTestOrFake:
-          - ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }}
+        branch: [ openwrt-24.10 ]
+        arch: [ aarch64_cortex-a53 ]
+        isTestOrFake: [ ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }} ]
         exclude:
           - { isTestOrFake: true }
     container:
@@ -126,6 +121,9 @@ jobs:
 
       - name: Setup OpenWrt SDK
         working-directory: /builder
+        env:
+          BRANCH: ${{ matrix.branch }}
+        shell: bash
         run: |
           gpg --verbose --import <(wget -qO- 'https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc')
           sed -i 's/gpg --/#gpg --/g' setup.sh
@@ -144,62 +142,52 @@ jobs:
       - name: Init packages
         id: init
         working-directory: '/builder'
+        env:
+          FAKE_BUILD: ${{ env.FAKE_BUILD == 'true' || env.TEST_BUILD == 'true' }}
+          BUILD_DATE: ${{ needs.check.outputs.build_date }}
+          ARCH: ${{ matrix.arch }}
+          BRANCH: ${{ matrix.branch }}
+          SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
+          CCACHE_DIR: '/builder/.ccache'
+        shell: bash
         run: |
           PKGDIR=$GITHUB_WORKSPACE/zapret-openwrt
-          PKGVER=$( grep -s '^PKG_VERSION:=.*' $PKGDIR/luci-app-zapret/Makefile | cut -d'=' -f2 )
           cp -vr $PKGDIR ./package/zapret-openwrt/
           mv feeds.conf.default feeds.conf
           sed -i -e 's|base.*\.git|base https://github.com/openwrt/openwrt.git|' feeds.conf
           sed -i -e 's|packages.*\.git|packages https://github.com/openwrt/packages.git|' feeds.conf
           sed -i -e 's|luci.*\.git|luci https://github.com/openwrt/luci.git|' feeds.conf
           mkdir -p ./logs
-          if [ "${{ env.FAKE_BUILD }}" = "false" ]; then
+          if [ "$FAKE_BUILD" = "false" ]; then
               ./scripts/feeds update base packages luci
               ./scripts/feeds install -a
           fi
-          echo "FAKE_BUILD=${{ env.FAKE_BUILD }}" >> $GITHUB_ENV
+          echo "FAKE_BUILD=$FAKE_BUILD" >> $GITHUB_ENV
+          PKGVER=$( grep -s '^PKG_VERSION:=.*' $PKGDIR/luci-app-zapret/Makefile | cut -d'=' -f2 )
           echo "PKGVER=$PKGVER" >> $GITHUB_ENV
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Setup ccache for eBPF
-        uses: actions/cache@v4
-        with:
-          path: /builder/package/zapret-openwrt/zapret-ebpf/ebpf
-          key: ebpf-${{ matrix.arch }}-${{ github.run_id }}
-          restore-keys: |
-            ebpf-${{ matrix.arch }}-
-
-      - name: Build zapret-ebpf package
-        working-directory: '/builder/package/zapret-openwrt/zapret-ebpf'
-        run: |
-          mkdir -p ebpf
-          for f in src/*.bpf.c; do
-            out=ebpf/$(basename $f .bpf.c).bpf.o
-            if [ ! -f "$out" ]; then
-              clang -O2 -target bpf -c $f -o $out || exit 1
-            fi
-          done
-
-          # Создаем структуру пакета
-          mkdir -p ./files/usr/lib/zapret/ebpf
-          cp ebpf/*.bpf.o ./files/usr/lib/zapret/ebpf/
-          mkdir -p ./files/etc/init.d
-          cp ../files/etc/init.d/zapret-ebpf ./files/etc/init.d/
-          mkdir -p ./files/etc/config
-          cp ../files/etc/config/zapret-ebpf ./files/etc/config/
-
-
       - name: Build packages        
         id: build
+        if: steps.init.outputs.status == 'success'
         working-directory: '/builder'
+        env:
+          BUILD_DATE: ${{ needs.check.outputs.build_date }}
+          ARCH: ${{ matrix.arch }}
+          BRANCH: ${{ matrix.branch }}
+          SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
+          CCACHE_DIR: '/builder/.ccache'
+        shell: bash
         run: |
           MAKE_JOBS=$(($(nproc)+1))
-          if [ "${{ env.FAKE_BUILD }}" = "false" ]; then
+          if [ "$FAKE_BUILD" = "false" ]; then
               make defconfig
               sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
-              PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,zapret-ebpf,luci-app-zapret}/compile`
-              if [ "${{ env.MAX_SPEED }}" = "false" ]; then
+              
+              # Список пакетов включая zapret-ebpf
+              PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret,zapret-ebpf}/compile`
+              if [ "$MAX_SPEED" = "false" ]; then
                   make $PKGLIST V=s CONFIG_CCACHE=1 BUILD_LOG=1
               else
                   make -j$MAKE_JOBS $PKGLIST CONFIG_CCACHE=1
@@ -207,12 +195,12 @@ jobs:
           else
               OUT_DIR=./bin/packages/dev_x/base
               mkdir -p $OUT_DIR
-              touch $OUT_DIR/zapret_$PKGVER-${{ matrix.arch }}.ipk
+              touch $OUT_DIR/zapret_$PKGVER-$ARCH.ipk
               touch $OUT_DIR/luci-app-zapret_$PKGVER-all.ipk
-              touch $OUT_DIR/zapret-ebpf_$PKGVER-${{ matrix.arch }}.ipk
+              touch $OUT_DIR/zapret-ebpf_$PKGVER-$ARCH.ipk
           fi
           find ./bin/packages/*/base -type f ! -regex ".*\(zapret\).*\.ipk$" -delete
-          OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-${{ matrix.arch }}
+          OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-$ARCH
           mkdir -p $OUTDIR
           cp -R ./bin/packages/*/base/. $OUTDIR/
           ./staging_dir/host/bin/ccache --max-size=10M --show-stats
@@ -223,7 +211,7 @@ jobs:
       - name: Compress build logs
         if: always()
         run: |
-          tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz ./logs
+          tar -cJvf logs-$BRANCH-$ARCH.tar.xz ./logs
 
       - name: Upload packages
         if: steps.build.outcome == 'success'
@@ -266,11 +254,14 @@ jobs:
         uses: andelf/nightly-release@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.check.outputs.tag }}
         with:
           prerelease: ${{ env.TEST_BUILD == 'true' || env.FAKE_BUILD == 'true' }}
           tag_name: v${{ needs.build.outputs.pkgver }}${{ env.TAG_SUFFIX }}
           name: zapret v${{ needs.build.outputs.pkgver }}
           body: |
             zapret v${{ needs.build.outputs.pkgver }} for OpenWrt
-            Includes zapret-ebpf package with compiled eBPF objects
+            Individual IPK package files for aarch64_cortex-a53 architecture:
+            - All files with `aarch64_cortex-a53_` prefix are for aarch64_cortex-a53 architecture
+            - All files are `.ipk` packages for OpenWrt 24.10
           files: ./release_files/*
