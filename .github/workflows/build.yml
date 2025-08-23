@@ -22,7 +22,7 @@ on:
       max_speed:
         description: 'Build with max speed'
         required: false
-        default: 'true'
+        default: 'false'
         type: choice
         options:
         - true
@@ -159,16 +159,12 @@ jobs:
         working-directory: '/builder'
         shell: bash
         run: |
-          MAKE_JOBS=$(($(nproc)+1))
+          MAKE_JOBS=1
           if [ "${{ needs.check.outputs.test_build }}" != "true" ] && [ "${{ needs.check.outputs.fake_build }}" != "true" ]; then
               make defconfig
               sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
               PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret,zapret-ebpf}/compile`
-              if [ "${{ env.MAX_SPEED }}" = "false" ]; then
-                  make $PKGLIST V=s CONFIG_CCACHE=1 BUILD_LOG=1
-              else
-                  make -j$MAKE_JOBS $PKGLIST CONFIG_CCACHE=1
-              fi
+              make -j$MAKE_JOBS $PKGLIST V=s CONFIG_CCACHE=1
           else
               OUT_DIR=./bin/packages/dev_x/base
               mkdir -p $OUT_DIR
