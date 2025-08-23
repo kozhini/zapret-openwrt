@@ -31,6 +31,6 @@ start() {
 stop() {
     echo "Unloading zapret eBPF programs..."
     # tc filter delete можно расширить по мере необходимости
-    tc filter delete dev eth0 ingress 2>/dev/null || true
+    tc filter delete dev br-lan ingress 2>/dev/null || true
     echo "zapret-ebpf unloaded."
 }
