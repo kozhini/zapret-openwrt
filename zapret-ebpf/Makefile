@@ -15,7 +15,7 @@ define Package/$(PKG_NAME)
   CATEGORY:=Network
   TITLE:=Zapret eBPF datapath (compile from source)
   URL:=https://github.com/ibrahmsql/zapret
-  DEPENDS:=+clang +llvm-bpf +libelf +zlib +libbpf +kmod-bpf +kmod-sched-core +kmod-sched-bpf
+  DEPENDS:= +libelf +zlib +libbpf +kmod-sched-core
 endef
 
 define Package/$(PKG_NAME)/description
