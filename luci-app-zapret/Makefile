@@ -5,9 +5,9 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-zapret
-PKG_VERSION:=71.4
+PKG_VERSION:=71.3-test
 PKG_LICENSE:=MIT
-PKG_MAINTAINER:=remittor <https://github.com/remittor>
+PKG_MAINTAINER:=kozhini
 
 LUCI_TITLE:=LuCI support for zapret
 LUCI_DEPENDS:=+zapret
