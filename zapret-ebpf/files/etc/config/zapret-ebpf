@@ -1,0 +1,15 @@
+config zapret-ebpf 'main'
+	option enabled '0'        # 1 – включить
+	option mode 'tc'          # tc | xdp
+	list ifname 'wan'         # интерфейсы для привязки (ingress)
+	# list ifname 'lan'
+
+	# Логика zapret:
+	option tls_fingerprint '1'
+	option sni_encrypt     '1'
+	option quic_filter     '1'
+	option fragment_ipv4   '0'   # использовать packet_fragment.bpf для IPv4
+	option fragment_ipv6   '0'   # и для IPv6 (если реализовано в объекте)
+
+	# Пины в bpffs:
+	option bpffs '/sys/fs/bpf'
