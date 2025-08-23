@@ -1,35 +1,49 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret-ebpf
+PKG_VERSION:=71.3-test
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=kozhini
 
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
 include $(INCLUDE_DIR)/package.mk
 
 define Package/$(PKG_NAME)
   SECTION:=net
   CATEGORY:=Network
-  TITLE:=Zapret eBPF datapath (CO-RE objects + loader)
+  TITLE:=Zapret eBPF datapath (compile from source)
   URL:=https://github.com/ibrahmsql/zapret
-  DEPENDS:= +bpftool +libbpf +kmod-bpf +kmod-sched-core +kmod-sched-bpf +kmod-ifb +kmod-xdp
+  DEPENDS:=+clang +llvm-bpf +libelf +zlib +libbpf +kmod-bpf +kmod-sched-core +kmod-sched-bpf
 endef
 
 define Package/$(PKG_NAME)/description
 eBPF datapath для zapret: фильтры TLS/QUIC/SNI и фрагментатор на tc/XDP.
-Содержит CO-RE .bpf.o и init-скрипт для загрузки/фиксации в bpffs.
+Собирает объекты CO-RE из исходников прямо в OpenWrt SDK.
 endef
 
-Build/Compile:= # ничего не собираем (кладём готовые .o)
+# --- Компиляция eBPF-объектов
+define Build/Compile
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/ebpf
+	for f in $(PKG_BUILD_DIR)/src/*.bpf.c; do \
+		out=$(PKG_BUILD_DIR)/ebpf/$$(basename $$f .bpf.c).bpf.o; \
+		$(TARGET_CC) -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) -c $$f -o $$out || exit 1; \
+	done
+endef
 
 define Package/$(PKG_NAME)/install
+	# Копируем скомпилированные eBPF-объекты
 	$(INSTALL_DIR) $(1)/usr/lib/zapret/ebpf
-	$(INSTALL_BIN) ./files/usr/lib/zapret/ebpf/*.bpf.o $(1)/usr/lib/zapret/ebpf/
+	$(CP) $(PKG_BUILD_DIR)/ebpf/*.bpf.o $(1)/usr/lib/zapret/ebpf/
 
+	# Копируем init-скрипт
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/zapret-ebpf $(1)/etc/init.d/zapret-ebpf
 
+	# Копируем config
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/zapret-ebpf $(1)/etc/config/zapret-ebpf
 endef
+
+$(eval $(call BuildPackage,$(PKG_NAME)))
