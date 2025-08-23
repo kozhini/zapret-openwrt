@@ -57,6 +57,7 @@ jobs:
     steps:
       - name: Get repo data via GH API
         id: gh
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -79,6 +80,7 @@ jobs:
 
       - name: Check for repo activity
         id: activity
+        shell: bash
         env:
           REPO_DATE: ${{ env.REPO_DATE }}
           URL: ${{ steps.gh.outputs.url }}
@@ -114,6 +116,7 @@ jobs:
 
       - name: Setup OpenWrt SDK
         working-directory: /builder
+        shell: bash
         run: |
           gpg --verbose --import <(wget -qO- 'https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc')
           sed -i 's/gpg --/#gpg --/g' setup.sh
@@ -132,6 +135,7 @@ jobs:
       - name: Init packages
         id: init
         working-directory: '/builder'
+        shell: bash
         run: |
           PKGDIR=$GITHUB_WORKSPACE/zapret-openwrt
           cp -vr $PKGDIR ./package/zapret-openwrt/
@@ -149,10 +153,11 @@ jobs:
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Build packages        
+      - name: Build packages
         id: build
         if: steps.init.outputs.status == 'success'
         working-directory: '/builder'
+        shell: bash
         run: |
           MAKE_JOBS=$(($(nproc)+1))
           if [ "${{ needs.check.outputs.test_build }}" != "true" ] && [ "${{ needs.check.outputs.fake_build }}" != "true" ]; then
@@ -179,6 +184,7 @@ jobs:
 
       - name: Compress build logs
         if: always()
+        shell: bash
         run: tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz ./logs
 
       - name: Upload packages
@@ -208,6 +214,7 @@ jobs:
           pattern: zapret,ipk,*
 
       - name: Prepare package files for release
+        shell: bash
         run: |
           mkdir -p release_files
           find . -type f -name "*.ipk" | while read file; do
