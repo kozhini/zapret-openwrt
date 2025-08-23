@@ -182,8 +182,9 @@ jobs:
         if: always()
         shell: bash
         run: |
-          mkdir -p ./logs
-          tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz ./logs || echo "No logs to compress"
+          LOGDIR="${BUILD_ROOT}/logs"
+          mkdir -p "$LOGDIR"
+          tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz -C "$BUILD_ROOT" logs || echo "No logs to compress"
 
       - name: Upload packages
         if: steps.build.outcome == 'success'
