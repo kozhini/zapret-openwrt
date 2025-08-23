@@ -38,7 +38,7 @@ env:
   TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
   REPO_URL: https://github.com/kozhini/zapret-openwrt
   REPO_LNK: kozhini/zapret-openwrt
-  REPO_BRANCH: master
+  REPO_BRANCH: test
   BUILD_ROOT: ${{ github.workspace }}/builder
   BUILD_DATE: unknown
   REPO_DATE: unknown
