@@ -42,5 +42,14 @@
 			"type": "view",
 			"path": "zapret/dmnlog"
 		}
-	}
+	},
+	
+	"admin/services/zapret/ebpf": {
+		"title": "Zapret (eBPF)",
+ 		"order": 40,
+		"action": {
+		    "type": "view",
+	   		"path": "zapret/ebpf"
+	  }
+
 }
