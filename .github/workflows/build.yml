@@ -32,10 +32,6 @@ on:
       - v[0-9]+*
 
 env:
-  TEST_BUILD: ${{ github.event.inputs.test_build == 'true' }}
-  FAKE_BUILD: ${{ github.event.inputs.fake_build == 'true' }}
-  MAX_SPEED: ${{ github.event.inputs.max_speed != 'false' }}
-  TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
   REPO_URL: https://github.com/kozhini/zapret-openwrt
   REPO_LNK: kozhini/zapret-openwrt
   REPO_BRANCH: test
@@ -43,7 +39,6 @@ env:
   BUILD_DATE: unknown
   REPO_DATE: unknown
   LUCI_ARCH: aarch64_cortex-a53
-  IS_TEST_OR_FAKE: ${{ github.event.inputs.test_build == 'true' || github.event.inputs.fake_build == 'true' }}
 
 jobs:
   check:
@@ -57,8 +52,8 @@ jobs:
       build_date: ${{ steps.gh.outputs.build_date }}
       fw_date: ${{ steps.gh.outputs.fw_date }}
       is_active: ${{ steps.activity.outputs.is_active }}
-      test_build: ${{ env.TEST_BUILD }}
-      fake_build: ${{ env.FAKE_BUILD }}
+      test_build: ${{ github.event.inputs.test_build }}
+      fake_build: ${{ github.event.inputs.fake_build }}
     steps:
       - name: Get repo data via GH API
         id: gh
@@ -68,7 +63,7 @@ jobs:
           BRANCH=$(gh api repos/$REPO_LNK --jq '.default_branch')
           REPO_DATE=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.committer.date')
           BUILD_DATE=$( date --utc +'%Y%m%d' )
-          FW_DATE=$( date --utc +'%Y-%m-%d' )
+          FW_DATE=$( date --utc -d "$REPO_DATE" +'%Y-%m-%d' )
           {
             echo "tag=$GITHUB_REF_NAME"
             echo "date=$(date --utc -d $REPO_DATE +%Y%m%d)"
@@ -110,8 +105,6 @@ jobs:
       options: --user root
     outputs:
       pkgver: ${{ steps.build.outputs.pkgver }}
-    env:
-      IS_TEST_OR_FAKE: ${{ env.IS_TEST_OR_FAKE }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -147,7 +140,7 @@ jobs:
           sed -i -e 's|packages.*\.git|packages https://github.com/openwrt/packages.git|' feeds.conf
           sed -i -e 's|luci.*\.git|luci https://github.com/openwrt/luci.git|' feeds.conf
           mkdir -p ./logs
-          if [ "$IS_TEST_OR_FAKE" = "false" ]; then
+          if [ "${{ needs.check.outputs.test_build }}" != "true" ] && [ "${{ needs.check.outputs.fake_build }}" != "true" ]; then
               ./scripts/feeds update base packages luci
               ./scripts/feeds install -a
           fi
@@ -162,7 +155,7 @@ jobs:
         working-directory: '/builder'
         run: |
           MAKE_JOBS=$(($(nproc)+1))
-          if [ "$IS_TEST_OR_FAKE" = "false" ]; then
+          if [ "${{ needs.check.outputs.test_build }}" != "true" ] && [ "${{ needs.check.outputs.fake_build }}" != "true" ]; then
               make defconfig
               sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
               PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret,zapret-ebpf}/compile`
@@ -229,7 +222,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          prerelease: ${{ env.IS_TEST_OR_FAKE }}
+          prerelease: ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }}
           tag_name: v${{ needs.build.outputs.pkgver }}${{ env.TAG_SUFFIX }}
           name: zapret v${{ needs.build.outputs.pkgver }}
           body: |
