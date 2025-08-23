@@ -1,36 +1,35 @@
 #!/bin/sh /etc/rc.common
-# Copyright (C) 2025
-# zapret-ebpf init script
-# Loads eBPF filters at boot
+# SPDX-License-Identifier: MIT
+# Запуск eBPF-фильтров Zapret на br-lan (WAN)
 
 START=99
 STOP=10
 USE_PROCD=1
 
 start() {
-    echo "Loading zapret eBPF programs..."
+    echo "Starting zapret-ebpf on interface br-lan..."
 
     EBPF_DIR=/usr/lib/zapret/ebpf
 
-    if [ ! -d "$EBPF_DIR" ]; then
-        echo "Directory $EBPF_DIR not found!"
-        return 1
-    fi
-
-    for prog in $EBPF_DIR/*.bpf.o; do
-        name=$(basename $prog .bpf.o)
-        echo "Loading eBPF program $name..."
-        # Пример загрузки через tc (XDP):
-        tc qdisc add dev eth0 clsact 2>/dev/null || true
-        tc filter add dev eth0 ingress bpf obj $prog sec classifier || true
+    # Загружаем каждый BPF объект на XDP/TC
+    for f in $EBPF_DIR/*.bpf.o; do
+        fname=$(basename $f)
+        echo "Attaching $fname to br-lan..."
+        # Используем tc clsact qdisc для ingress
+        tc qdisc add dev br-lan clsact 2>/dev/null || true
+        tc filter add dev br-lan ingress bpf da obj $f sec prog 2>/dev/null || true
     done
 
-    echo "zapret-ebpf loaded."
+    echo "zapret-ebpf started."
 }
 
 stop() {
-    echo "Unloading zapret eBPF programs..."
-    # tc filter delete можно расширить по мере необходимости
-    tc filter delete dev br-lan ingress 2>/dev/null || true
-    echo "zapret-ebpf unloaded."
+    echo "Stopping zapret-ebpf on br-lan..."
+    tc qdisc del dev br-lan clsact 2>/dev/null || true
+    echo "zapret-ebpf stopped."
+}
+
+restart() {
+    stop
+    start
 }
