@@ -1,15 +1,21 @@
 config zapret-ebpf 'main'
-	option enabled '0'        # 1 – включить
-	option mode 'tc'          # tc | xdp
-	list ifname 'wan'         # интерфейсы для привязки (ingress)
-	# list ifname 'lan'
+    option enabled '1'            # Включение/выключение всей системы
+    option iface 'br-lan'         # Интерфейс для применения eBPF
+    option xdp_mode 'skb'         # Режим XDP: 'skb' или 'native'
+    option log_level '1'          # Уровень логирования: 0=off, 1=info, 2=debug
 
-	# Логика zapret:
-	option tls_fingerprint '1'
-	option sni_encrypt     '1'
-	option quic_filter     '1'
-	option fragment_ipv4   '0'   # использовать packet_fragment.bpf для IPv4
-	option fragment_ipv6   '0'   # и для IPv6 (если реализовано в объекте)
+# Включение/отключение отдельных фильтров
+config filter 'zapret_filter'
+    option enabled '1'            # Основной сетевой фильтр
 
-	# Пины в bpffs:
-	option bpffs '/sys/fs/bpf'
+config filter 'tls_fingerprint'
+    option enabled '1'            # TLS Fingerprint
+
+config filter 'sni_encrypt'
+    option enabled '1'            # SNI фильтр
+
+config filter 'quic_filter'
+    option enabled '1'            # QUIC фильтр
+
+config filter 'packet_fragment'
+    option enabled '1'            # Фрагментация пакетов
