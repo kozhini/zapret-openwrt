@@ -147,6 +147,12 @@ jobs:
           key: ccache-${{ matrix.arch }}-${{ matrix.branch }}-${{ github.run_id }}
           restore-keys: |
             ccache-${{ matrix.arch }}-${{ matrix.branch }}-
+            
+      - name: Install clang for eBPF build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libelf-dev zlib1g-dev
+
 
       - name: Init packages
         id: init
