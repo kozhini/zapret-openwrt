@@ -64,7 +64,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Tag name from GITHUB_REF_NAME: $GITHUB_REF_NAME"
           BRANCH=$(gh api repos/$REPO_LNK --jq '.default_branch')
           REPO_DATE=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.committer.date')
           BUILD_DATE=$( date --utc +'%Y%m%d' )
@@ -86,7 +85,6 @@ jobs:
         id: activity
         env:
           REPO_DATE: ${{ env.REPO_DATE }}
-          URL: ${{ steps.gh.outputs.url }}
         run: |
           TIMESTAMP=$(date --utc -d $REPO_DATE +%s)
           DAYS=$(( ( $(date --utc +%s) - $TIMESTAMP ) / 86400 ))
@@ -100,21 +98,14 @@ jobs:
   build:
     needs: check
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu:22.04
     strategy:
       fail-fast: false
       matrix:
         branch: [ openwrt-24.10 ]
         arch:
           - aarch64_cortex-a53
-        isTestOrFake:
-          - ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }}
-        exclude:
-          - { isTestOrFake: true }
-    container:
-      image: openwrt/sdk:${{ matrix.arch }}-${{ matrix.branch }}
-      options: --user root
-    outputs:
-      pkgver: ${{ steps.build.outputs.pkgver }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -122,106 +113,31 @@ jobs:
           repository: ${{ env.REPO_LNK }}
           path: zapret-openwrt
 
-      - name: Install clang for eBPF build
+      - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm libelf-dev zlib1g-dev
+          apt-get update
+          apt-get install -y build-essential git subversion libncurses5-dev zlib1g-dev gawk flex gettext wget unzip python3 python3-distutils rsync file clang llvm libelf-dev
 
-      - name: Setup OpenWrt SDK
-        working-directory: /builder
-        shell: bash
+      - name: Prepare OpenWrt SDK
         run: |
-          ./setup.sh
-          echo "PKGTYPE=ipk" >> $GITHUB_ENV
-
-      - name: Setup ccache
-        uses: actions/cache@v4
-        with:
-          path: '/builder/.ccache'
-          key: ccache-${{ matrix.arch }}-${{ matrix.branch }}-${{ github.run_id }}
-          restore-keys: |
-            ccache-${{ matrix.arch }}-${{ matrix.branch }}-
-
-      - name: Init packages
-        id: init
-        working-directory: '/builder'
-        shell: bash
-        run: |
-          PKGDIR=$GITHUB_WORKSPACE/zapret-openwrt
-          MKFN=$PKGDIR/luci-app-zapret/Makefile
-          PKGVER=$( grep -s '^PKG_VERSION:=.*' $MKFN | cut -d'=' -f2 )
-          cp -vr $PKGDIR ./package/zapret-openwrt/
+          git clone --depth 1 -b openwrt-24.10 https://github.com/openwrt/openwrt.git /builder
+          cd /builder
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          echo "PKGVER=$PKGVER" >> $GITHUB_ENV
-          echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
+
+      - name: Copy zapret packages
+        run: |
+          cp -r $GITHUB_WORKSPACE/zapret-openwrt/package/zapret-openwrt /builder/package/
 
       - name: Build packages
-        id: build
-        working-directory: '/builder'
-        shell: bash
+        working-directory: /builder
         run: |
-          MAKE_JOBS=$(($(nproc)+1))
           make defconfig
           sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
           PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret}/compile`
-          make -j$MAKE_JOBS $PKGLIST CONFIG_CCACHE=1
-          OUTDIR=$GITHUB_WORKSPACE/ipk-${{ matrix.arch }}
-          mkdir -p $OUTDIR
-          cp -R ./bin/packages/*/base/. $OUTDIR/
-          echo "OUTDIR=$OUTDIR" >> $GITHUB_ENV
-          echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
+          make -j$(($(nproc)+1)) $PKGLIST V=s CONFIG_CCACHE=1
 
-      - name: Compress build logs
-        if: always()
+      - name: Collect build output
         run: |
-          tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz ./logs
-
-      - name: Upload packages
-        uses: actions/upload-artifact@main
-        with:
-          path: ${{ env.OUTDIR }}
-          name: zapret,ipk,${{ matrix.arch }}
-          if-no-files-found: error
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          path: logs-*.tar.xz
-          name: logs-${{ matrix.branch }}-${{ matrix.arch }}
-
-  release:
-    needs: [ check, build ]
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: zapret,ipk,*
-
-      - name: Prepare package files for release
-        run: |
-          mkdir -p release_files
-          find . -type f -name "*.ipk" | while read file; do
-            arch=$(echo "$file" | grep -oP 'zapret,ipk,\K[^/]+')
-            filename=$(basename "$file")
-            new_filename="${arch}_${filename}"
-            cp "$file" "release_files/$new_filename"
-          done
-          ls -lh ./release_files/
-
-      - name: Upload individual package files
-        uses: andelf/nightly-release@main
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.check.outputs.tag }}
-        with:
-          prerelease: ${{ env.TEST_BUILD == 'true' || env.FAKE_BUILD == 'true' }}
-          tag_name: v${{ needs.build.outputs.pkgver }}${{ env.TAG_SUFFIX }}
-          name: zapret v${{ needs.build.outputs.pkgver }}
-          body: |
-            zapret v${{ needs.build.outputs.pkgver }} for OpenWrt
-          files: ./release_files/*
+          mkdir -p $GITHUB_WORKSPACE/ipk-${{ matrix.arch }}
+          cp -R ./bin/packages/*/base/. $GITHUB_WORKSPACE/ipk-${{ matrix.arch }}/
