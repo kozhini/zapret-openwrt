@@ -1,31 +1,54 @@
 #!/bin/sh /etc/rc.common
 # SPDX-License-Identifier: MIT
-# Запуск eBPF-фильтров Zapret на br-lan (WAN)
+# Запуск eBPF-фильтров Zapret на интерфейсе из config
 
 START=99
 STOP=10
 USE_PROCD=1
 
+CONFIG_FILE=/etc/config/zapret-ebpf
+
+load_config() {
+    # Используем uci для чтения конфигурации
+    ENABLED=$(uci get zapret-ebpf.main.enabled 2>/dev/null || echo 0)
+    IFACE=$(uci get zapret-ebpf.main.iface 2>/dev/null || echo br-lan)
+    XDP_MODE=$(uci get zapret-ebpf.main.xdp_mode 2>/dev/null || echo skb)
+    LOG_LEVEL=$(uci get zapret-ebpf.main.log_level 2>/dev/null || echo 1)
+    TC_INGRESS=$(uci get zapret-ebpf.main.tc_ingress 2>/dev/null || echo 1)
+    LOAD_ON_BOOT=$(uci get zapret-ebpf.main.load_on_boot 2>/dev/null || echo 1)
+}
+
 start() {
-    echo "Starting zapret-ebpf on interface br-lan..."
+    load_config
+    [ "$ENABLED" -ne 1 ] && { echo "zapret-ebpf disabled in config"; return; }
+
+    echo "Starting zapret-ebpf on interface $IFACE (XDP mode: $XDP_MODE)..."
 
     EBPF_DIR=/usr/lib/zapret/ebpf
 
-    # Загружаем каждый BPF объект на XDP/TC
+    # Загружаем каждый BPF объект
     for f in $EBPF_DIR/*.bpf.o; do
         fname=$(basename $f)
-        echo "Attaching $fname to br-lan..."
-        # Используем tc clsact qdisc для ingress
-        tc qdisc add dev br-lan clsact 2>/dev/null || true
-        tc filter add dev br-lan ingress bpf da obj $f sec prog 2>/dev/null || true
+        echo "Attaching $fname to $IFACE..."
+        if [ "$TC_INGRESS" -eq 1 ]; then
+            tc qdisc add dev $IFACE clsact 2>/dev/null || true
+            tc filter add dev $IFACE ingress bpf da obj $f sec prog 2>/dev/null || true
+        else
+            ip link set dev $IFACE xdp obj $f sec prog mode $XDP_MODE 2>/dev/null || true
+        fi
     done
 
     echo "zapret-ebpf started."
 }
 
 stop() {
-    echo "Stopping zapret-ebpf on br-lan..."
-    tc qdisc del dev br-lan clsact 2>/dev/null || true
+    load_config
+    echo "Stopping zapret-ebpf on interface $IFACE..."
+    if [ "$TC_INGRESS" -eq 1 ]; then
+        tc qdisc del dev $IFACE clsact 2>/dev/null || true
+    else
+        ip link set dev $IFACE xdp off 2>/dev/null || true
+    fi
     echo "zapret-ebpf stopped."
 }
 
