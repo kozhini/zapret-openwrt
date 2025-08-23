@@ -38,9 +38,9 @@ env:
   TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
   REPO_URL: https://github.com/kozhini/zapret-openwrt
   REPO_LNK: kozhini/zapret-openwrt
-  REPO_BRANCH: master
+  REPO_BRANCH: test
   BUILD_ROOT: ${{ github.workspace }}/builder
-  BUILD_DATE: unknown
+  BUILD_DATE: 23-08-25
   REPO_DATE: unknown
   LUCI_ARCH: aarch64_cortex-a53
 
@@ -105,7 +105,6 @@ jobs:
 
   build:
     needs: check
-    #if: needs.check.outputs.is_active == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -135,14 +134,10 @@ jobs:
           BRANCH: ${{ matrix.branch }}
         shell: bash
         run: |
-          # gpg --verbose --recv-keys 0x1D53D1877742E911
           gpg --verbose --import <(wget -qO- 'https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc')
-          # disable check signatures
           sed -i 's/gpg --/#gpg --/g' setup.sh
-          # disable cleanup keys
           sed -r -i 's/^rm.+//' setup.sh
           ./setup.sh
-          ls -lh
           echo "PKGTYPE=ipk" >> $GITHUB_ENV
 
       - name: Setup ccache
@@ -204,14 +199,17 @@ jobs:
           if [ "$FAKE_BUILD" = "false" ]; then
               make defconfig
               sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
-              echo "------------- .config BEG -------------------"
-              cat .config
-              echo "------------- .config END -------------------"
+              
+              # --- добавляем сборку eBPF пакета ---
+              echo "Building zapret-ebpf..."
+              make package/zapret-openwrt/zapret-ebpf/compile V=s CONFIG_CCACHE=1 || exit 1
+              
               if [ "$ARCH" = "$LUCI_ARCH" ]; then
-                  PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret}/compile`
+                  PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-ebpf,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret}/compile`
               else
-                  PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net}/compile`
+                  PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-ebpf,zapret-tpws,zapret-mdig,zapret-ip2net}/compile`
               fi
+              
               if [ "$MAX_SPEED" = "false" ]; then
                   make $PKGLIST V=s CONFIG_CCACHE=1 BUILD_LOG=1
               else
@@ -221,15 +219,11 @@ jobs:
               OUT_DIR=./bin/packages/dev_x/base
               mkdir -p $OUT_DIR
               touch $OUT_DIR/zapret_$PKGVER-$ARCH.ipk
+              touch $OUT_DIR/zapret-ebpf_$PKGVER-$ARCH.ipk
               touch $OUT_DIR/luci-app-zapret_$PKGVER-all.ipk
           fi
           
           find ./bin/packages/*/base -type f ! -regex ".*\(zapret\).*\.ipk$" -delete
-          
-          #echo ">>>>>>> build a repository index to make the output directory usable as local OPKG source"
-          #ln -s `which usign` staging_dir/host/bin/usign
-          #echo "$SIGN_KEY" | base64 -d > key-build
-          #make package/index
           
           OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-$ARCH
           mkdir -p $OUTDIR
@@ -282,28 +276,13 @@ jobs:
           BUILD_DATE: ${{ needs.check.outputs.build_date }}
           PKGVER: ${{ needs.build.outputs.pkgver }}
         run: |
-          echo "------------- DIR BEG -------------------"
-          ls -la
-          echo "------------- DIR END -------------------"
-          
-          # Create a flat directory structure for all packages
           mkdir -p release_files
-          
-          # Find all ipk files and copy them to release_files with descriptive names
           find . -type f -name "*.ipk" | while read file; do
-            # Extract architecture from directory path
             arch=$(echo "$file" | grep -oP 'zapret,ipk,\K[^/]+')
             filename=$(basename "$file")
-            
-            # Create new filename with architecture prefix
             new_filename="${arch}_${filename}"
-            
-            echo "Copying $file to release_files/$new_filename"
             cp "$file" "release_files/$new_filename"
           done
-          
-          # List all files that will be released
-          echo "Files prepared for release:"
           ls -lh ./release_files/
 
       - name: Upload individual package files
