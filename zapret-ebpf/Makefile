@@ -15,7 +15,7 @@ define Package/$(PKG_NAME)
   CATEGORY:=Network
   TITLE:=Zapret eBPF datapath (compile from source)
   URL:=https://github.com/ibrahmsql/zapret
-  DEPENDS:=+libelf +zlib +libbpf +kmod-sched-core
+  DEPENDS:= +libelf +zlib +libbpf +kmod-sched-core
 endef
 
 define Package/$(PKG_NAME)/description
@@ -23,12 +23,19 @@ eBPF datapath для zapret: фильтры TLS/QUIC/SNI и фрагментат
 Собирает объекты CO-RE из исходников прямо в OpenWrt SDK.
 endef
 
-# --- Компиляция eBPF-объектов через clang
+# Определяем clang из хоста
+CLANG := $(shell which clang || true)
+
 define Build/Compile
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/ebpf
 	for f in $(PKG_BUILD_DIR)/src/*.bpf.c; do \
 		out=$(PKG_BUILD_DIR)/ebpf/$$(basename $$f .bpf.c).bpf.o; \
-		$(STAGING_DIR_HOST)/bin/clang -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) -c $$f -o $$out || exit 1; \
+		if [ -x "$(CLANG)" ]; then \
+			$(CLANG) -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) -c $$f -o $$out || exit 1; \
+		else \
+			echo "Error: clang not found on host."; \
+			exit 1; \
+		fi \
 	done
 endef
 
