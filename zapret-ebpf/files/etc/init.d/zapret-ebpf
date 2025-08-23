@@ -1,103 +1,36 @@
 #!/bin/sh /etc/rc.common
-# Copyright ...
-START=62
-STOP=18
+# Copyright (C) 2025
+# zapret-ebpf init script
+# Loads eBPF filters at boot
+
+START=99
+STOP=10
 USE_PROCD=1
 
-NAME=zapret-ebpf
-CONFIG=/etc/config/zapret-ebpf
+start() {
+    echo "Loading zapret eBPF programs..."
 
-. /lib/functions.sh
+    EBPF_DIR=/usr/lib/zapret/ebpf
 
-log() { logger -t $NAME "$@"; }
+    if [ ! -d "$EBPF_DIR" ]; then
+        echo "Directory $EBPF_DIR not found!"
+        return 1
+    fi
 
-load_cfg() {
-	config_load zapret-ebpf
-	config_get_bool enabled main enabled 0
-	config_get mode   main mode tc
-	config_get bpffs  main bpffs /sys/fs/bpf
-	config_get tls_fingerprint main tls_fingerprint 1
-	config_get sni_encrypt     main sni_encrypt 1
-	config_get quic_filter     main quic_filter 1
-	config_get fragment_ipv4   main fragment_ipv4 0
-	config_get fragment_ipv6   main fragment_ipv6 0
-	ifnames=
-	config_list_foreach main ifname 'append_if'
+    for prog in $EBPF_DIR/*.bpf.o; do
+        name=$(basename $prog .bpf.o)
+        echo "Loading eBPF program $name..."
+        # Пример загрузки через tc (XDP):
+        tc qdisc add dev eth0 clsact 2>/dev/null || true
+        tc filter add dev eth0 ingress bpf obj $prog sec classifier || true
+    done
+
+    echo "zapret-ebpf loaded."
 }
 
-append_if() {
-	[ -n "$ifnames" ] && ifnames="$ifnames $1" || ifnames="$1"
-}
-
-ensure_bpffs() {
-	mount | grep -q " $bpffs type bpf" || mount -t bpf bpf "$bpffs" || {
-		log "failed to mount bpffs at $bpffs"; return 1; }
-	return 0
-}
-
-clsact_add() {
-	local dev="$1"
-	tc qdisc show dev "$dev" | grep -q clsact || tc qdisc add dev "$dev" clsact 2>/dev/null
-}
-
-detach_all() {
-	for dev in $ifnames; do
-		# Чистим tc ingress/egress
-		tc filter del dev "$dev" ingress 2>/dev/null
-		tc filter del dev "$dev" egress 2>/dev/null
-	done
-	# Удаляем пины (не трогаем чужие)
-	for p in zapret_*; do
-		[ -e "$bpffs/$p" ] && rm -rf "$bpffs/$p"
-	done
-}
-
-attach_tc() {
-	local dev="$1" obj="$2" sec="$3"
-	clsact_add "$dev"
-	# da = direct-action; skip_sw стараемся не навязывать
-	tc filter add dev "$dev" ingress bpf da obj "$obj" sec "$sec" 2>/dev/null
-}
-
-start_service() {
-	load_cfg
-	[ "$enabled" = "1" ] || return 0
-	command -v bpftool >/dev/null || { log "bpftool not found"; return 1; }
-
-	ensure_bpffs || return 1
-
-	# Загружаем объекты (они CO-RE, грузим через tc; секции должны совпадать с .bpf.c)
-	# Имена секций могут отличаться; при необходимости поправьте "sec=" по вашим объектам.
-	local dir="/usr/lib/zapret/ebpf"
-
-	for dev in $ifnames; do
-		[ "$mode" = "tc" ] && {
-			[ "$tls_fingerprint" = "1" ] && attach_tc "$dev" "$dir/tls_fingerprint.bpf.o" "tc_ingress"
-			[ "$sni_encrypt"     = "1" ] && attach_tc "$dev" "$dir/sni_encrypt.bpf.o"     "tc_ingress"
-			[ "$quic_filter"     = "1" ] && attach_tc "$dev" "$dir/quic_filter.bpf.o"     "tc_ingress"
-			[ "$fragment_ipv4"   = "1" ] && attach_tc "$dev" "$dir/packet_fragment.bpf.o" "tc_ingress"
-			# базовый фильтр (общая логика zapret)
-			attach_tc "$dev" "$dir/zapret_filter.bpf.o" "tc_ingress"
-		}
-
-		if [ "$mode" = "xdp" ]; then
-			# вариант XDP через bpftool (если в объектах есть секция xdp)
-			# bpftool prog loadall "$dir/zapret_filter.bpf.o" "$bpffs/zapret_${dev}" 2>/dev/null
-			# bpftool net attach xdp pinned "$bpffs/zapret_${dev}/prog" dev "$dev"
-			log "XDP mode not wired by default; use tc unless вы точно знаете секции xdp."
-		fi
-	done
-
-	procd_open_instance
-	procd_set_param command /bin/true
-	procd_set_param respawn
-	procd_close_instance
-
-	log "started on: $ifnames, mode=$mode"
-}
-
-stop_service() {
-	load_cfg
-	detach_all
-	log "stopped"
+stop() {
+    echo "Unloading zapret eBPF programs..."
+    # tc filter delete можно расширить по мере необходимости
+    tc filter delete dev eth0 ingress 2>/dev/null || true
+    echo "zapret-ebpf unloaded."
 }
