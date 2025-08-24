@@ -28,10 +28,24 @@ CLANG := $(shell which clang || true)
 
 define Build/Compile
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/ebpf
-	for f in $(PKG_BUILD_DIR)/src/*.bpf.c; do \
+	echo "=== Debug: PKG_BUILD_DIR = $(PKG_BUILD_DIR) ==="
+	echo "=== Debug: Looking for .bpf.c files in $(PKG_BUILD_DIR)/files/src/ ==="
+	ls -la $(PKG_BUILD_DIR)/files/src/ || echo "Directory not found"
+	echo "=== Debug: CLANG path = $(CLANG) ==="
+	which clang || echo "clang not found in PATH"
+	clang --version || echo "clang version check failed"
+	for f in $(PKG_BUILD_DIR)/files/src/*.bpf.c; do \
+		echo "=== Processing file: $$f ==="; \
+		if [ ! -f "$$f" ]; then \
+			echo "ERROR: File $$f does not exist!"; \
+			continue; \
+		fi; \
 		out=$(PKG_BUILD_DIR)/ebpf/$$(basename $$f .bpf.c).bpf.o; \
+		echo "=== Output file: $$out ==="; \
 		if [ -x "$(CLANG)" ]; then \
-			$(CLANG) -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) -c $$f -o $$out || exit 1; \
+			echo "=== Running clang command ==="; \
+			$(CLANG) -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) -c "$$f" -o "$$out" || exit 1; \
+			echo "=== Clang command completed successfully ==="; \
 		else \
 			echo "Error: clang not found on host."; \
 			exit 1; \
