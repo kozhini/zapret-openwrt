@@ -32,7 +32,7 @@ define Package/$(PKG_NAME)
 	CATEGORY:=Network
 	TITLE:=$(PKG_NAME)
 	SUBMENU:=Zapret
-	URL:=https://github.com/bol-van/zapret
+	URL:=https://github.com/ibrahmsql/zapret
 	DEPENDS:= +nftables +curl +gzip
 	DEPENDS+= +coreutils +coreutils-sort +coreutils-sleep
 	DEPENDS+= +kmod-nft-nat +kmod-nft-offload +kmod-nft-queue
