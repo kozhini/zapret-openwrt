@@ -153,6 +153,59 @@ jobs:
           echo "PKGVER=$PKGVER" >> $GITHUB_ENV
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
+          
+      - name: Verify packages before build
+        working-directory: '/builder'
+        shell: bash
+        run: |
+          echo "=== Verifying package structure ==="
+    
+          PKGDIR="./package/zapret-openwrt"
+          if [ ! -d "$PKGDIR" ]; then
+              echo "ERROR: Package directory $PKGDIR does not exist!"
+              exit 1
+          fi
+    
+          echo "Package directory contents:"
+          ls -la "$PKGDIR"
+    
+          # Проверяем каждый пакет
+          for pkg in zapret zapret-tpws zapret-mdig zapret-ip2net luci-app-zapret zapret-ebpf; do
+              echo "--- Checking $pkg ---"
+              pkgdir="$PKGDIR/$pkg"
+        
+              if [ ! -d "$pkgdir" ]; then
+                  echo "ERROR: Package directory $pkgdir does not exist!"
+                  continue
+              fi
+        
+              echo "Package $pkg contents:"
+              ls -la "$pkgdir"
+        
+              if [ -f "$pkgdir/Makefile" ]; then
+                  echo "Makefile for $pkg:"
+                  echo "PKG_VERSION: $(grep '^PKG_VERSION:=' "$pkgdir/Makefile" || echo 'NOT FOUND')"
+                  echo "PKG_SOURCE: $(grep '^PKG_SOURCE:=' "$pkgdir/Makefile" || echo 'NOT FOUND')"
+                  echo "DEPENDS: $(grep '^DEPENDS:=' "$pkgdir/Makefile" || echo 'NOT FOUND')"
+              else
+                  echo "ERROR: Makefile not found for $pkg"
+              fi
+          done
+    
+          echo "=== Checking feeds ==="
+          if [ -f "feeds.conf" ]; then
+              echo "Feeds configuration:"
+              cat feeds.conf
+          else
+              echo "ERROR: feeds.conf not found!"
+          fi
+    
+          echo "=== Checking .config ==="
+          if [ -f ".config" ]; then
+              echo ".config exists"
+          else
+              echo ".config does not exist (will be created by defconfig)"
+          fi
 
       - name: Build packages
         id: build
