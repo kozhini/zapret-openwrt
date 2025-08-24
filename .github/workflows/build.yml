@@ -293,40 +293,53 @@ jobs:
           echo "Contents:"
           ls -la
           
+          # Создаем директорию для логов и настраиваем логирование
+          mkdir -p ./logs
+          echo "=== Build started at $(date) ===" > ./logs/build.log
+          
           MAKE_JOBS=1
           if [ "${{ needs.check.outputs.test_build }}" != "true" ] && [ "${{ needs.check.outputs.fake_build }}" != "true" ]; then
-              echo "=== Running real build ==="
+              echo "=== Running real build ===" | tee -a ./logs/build.log
               
-              echo "=== Making defconfig ==="
-              make defconfig 2>&1 || {
+              echo "=== Making defconfig ===" | tee -a ./logs/build.log
+              make defconfig 2>&1 | tee -a ./logs/defconfig.log || {
+                  echo "defconfig failed with exit code: $?" | tee -a ./logs/build.log
                   echo "defconfig failed with exit code: $?"
                   exit 1
               }
               
-              echo "=== Modifying config ==="
+              echo "=== Modifying config ===" | tee -a ./logs/build.log
               sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config 2>&1
               
-              echo "=== Building packages ==="
+              echo "=== Building packages ===" | tee -a ./logs/build.log
               PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret,zapret-ebpf}/compile`
-              echo "Package list: $PKGLIST"
+              echo "Package list: $PKGLIST" | tee -a ./logs/build.log
               
-              make -j$MAKE_JOBS $PKGLIST V=s CONFIG_CCACHE=1 2>&1 || {
-                  echo "Build failed with exit code: $?"
-                  echo "=== Build error details ==="
+              # Запускаем сборку с подробным логированием
+              make -j$MAKE_JOBS $PKGLIST V=s CONFIG_CCACHE=1 2>&1 | tee -a ./logs/make.log || {
+                  BUILD_EXIT_CODE=$?
+                  echo "Build failed with exit code: $BUILD_EXIT_CODE" | tee -a ./logs/build.log
+                  echo "=== Build error details ===" | tee -a ./logs/build.log
+                  
                   # Попробуем получить больше информации об ошибке
                   for pkg in zapret zapret-tpws zapret-mdig zapret-ip2net luci-app-zapret zapret-ebpf; do
-                      echo "--- Checking $pkg ---"
+                      echo "--- Checking $pkg ---" | tee -a ./logs/build.log
                       if [ -f "package/zapret-openwrt/$pkg/Makefile" ]; then
-                          echo "Makefile exists for $pkg"
-                          grep -E "^(PKG_VERSION|PKG_SOURCE|DEPENDS)=" "package/zapret-openwrt/$pkg/Makefile" || echo "Required fields not found"
+                          echo "Makefile exists for $pkg" | tee -a ./logs/build.log
+                          grep -E "^(PKG_VERSION|PKG_SOURCE|DEPENDS)=" "package/zapret-openwrt/$pkg/Makefile" | tee -a ./logs/build.log || echo "Required fields not found" | tee -a ./logs/build.log
                       else
-                          echo "Makefile missing for $pkg"
+                          echo "Makefile missing for $pkg" | tee -a ./logs/build.log
                       fi
                   done
-                  exit 1
+                  
+                  # Сохраняем последние строки логов для диагностики
+                  echo "=== Last 50 lines of make.log ===" | tee -a ./logs/build.log
+                  tail -50 ./logs/make.log | tee -a ./logs/build.log
+                  
+                  exit $BUILD_EXIT_CODE
               }
           else
-              echo "=== Running fake build ==="
+              echo "=== Running fake build ===" | tee -a ./logs/build.log
               OUT_DIR=./bin/packages/dev_x/base
               mkdir -p $OUT_DIR
               touch $OUT_DIR/zapret_$PKGVER-${{ matrix.arch }}.ipk
@@ -334,7 +347,7 @@ jobs:
               touch $OUT_DIR/zapret-ebpf_$PKGVER-${{ matrix.arch }}.ipk
           fi
           
-          echo "=== Build completed successfully ==="
+          echo "=== Build completed successfully at $(date) ===" | tee -a ./logs/build.log
           OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-${{ matrix.arch }}
           mkdir -p $OUTDIR
           cp -R ./bin/packages/*/base/. $OUTDIR/
@@ -347,22 +360,37 @@ jobs:
         run: |
           echo "=== Saving all available logs ==="
           
-          # Сохраняем логи make
-          if [ -f "/builder/logs/make.log" ]; then
-              cp "/builder/logs/make.log" "make.log"
+          # Проверяем и создаем директорию для логов
+          LOGDIR="/builder/logs"
+          echo "Checking log directory: $LOGDIR"
+          
+          if [ -d "$LOGDIR" ]; then
+              echo "Log directory exists, contents:"
+              ls -la "$LOGDIR"
+              
+              # Копируем все логи из директории
+              if [ "$(ls -A $LOGDIR)" ]; then
+                  echo "Logs found, copying..."
+                  cp -r "$LOGDIR"/* . || echo "Failed to copy logs"
+              else
+                  echo "Log directory is empty"
+              fi
+          else
+              echo "Log directory does not exist, creating..."
+              mkdir -p "$LOGDIR"
           fi
           
-          # Сохраняем логи ошибок
-          if [ -f "/builder/logs/error.log" ]; then
-              cp "/builder/logs/error.log" "error.log"
+          # Проверяем наличие логов в текущей директории
+          echo "=== Checking for logs in current directory ==="
+          ls -la *.log 2>/dev/null || echo "No .log files found"
+          
+          # Проверяем наличие логов в рабочей директории
+          echo "=== Checking for logs in working directory ==="
+          if [ -d "/builder" ]; then
+              find /builder -name "*.log" -type f 2>/dev/null | head -10 || echo "No log files found in /builder"
           fi
           
-          # Сохраняем все файлы из logs
-          if [ -d "/builder/logs" ]; then
-              cp -r "/builder/logs/"* . || echo "No files to copy from logs"
-          fi
-          
-          # Создаем общий лог
+          # Создаем общий лог с информацией о сборке
           {
               echo "=== Build Summary ==="
               echo "Date: $(date)"
@@ -371,6 +399,7 @@ jobs:
               echo "Test build: ${{ needs.check.outputs.test_build }}"
               echo "Fake build: ${{ needs.check.outputs.fake_build }}"
               echo "PKGVER: $PKGVER"
+              echo "Build exit code: ${{ steps.build.outcome }}"
               echo "=== End Summary ==="
           } > build-summary.log
 
@@ -379,28 +408,26 @@ jobs:
         shell: bash
         run: |
           echo "=== Compressing build logs ==="
-          LOGDIR="${BUILD_ROOT}/logs"
-          echo "Log directory: $LOGDIR"
           
-          if [ -d "$LOGDIR" ]; then
-              echo "Log directory exists, contents:"
-              ls -la "$LOGDIR"
-              
-              if [ "$(ls -A $LOGDIR)" ]; then
-                  echo "Logs found, compressing..."
-                  tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz -C "$BUILD_ROOT" logs
-              else
-                  echo "Log directory is empty"
-                  # Создаем пустой архив с информацией об ошибке
-                  echo "Build failed - no logs generated" > build-error.txt
-                  tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz build-error.txt
-              fi
+          # Создаем архив со всеми доступными логами
+          if [ -f "build-summary.log" ]; then
+              echo "Found build-summary.log, including in archive"
+              tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz build-summary.log
+          fi
+          
+          # Добавляем все .log файлы в архив
+          if ls *.log 1> /dev/null 2>&1; then
+              echo "Found .log files, adding to archive"
+              tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz *.log
           else
-              echo "Log directory does not exist"
+              echo "No .log files found"
               # Создаем архив с информацией об ошибке
-              echo "Build failed - log directory not created" > build-error.txt
+              echo "Build failed - no log files generated" > build-error.txt
               tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz build-error.txt
           fi
+          
+          echo "Archive contents:"
+          tar -tvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz
 
       - name: Upload packages
         if: steps.build.outcome == 'success'
