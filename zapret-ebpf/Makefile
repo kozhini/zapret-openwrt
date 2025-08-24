@@ -1,100 +1,43 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret-ebpf
-PKG_VERSION:=71.3-test
-PKG_RELEASE:=1
-PKG_LICENSE:=MIT
-PKG_MAINTAINER:=kozhini
+PKG_RELEASE:=71.3-test
 
-PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
+PKG_BUILD_DEPENDS:=clang/host llvm/host bpftool/host
 
 include $(INCLUDE_DIR)/package.mk
 
 define Package/$(PKG_NAME)
   SECTION:=net
   CATEGORY:=Network
-  TITLE:=Zapret eBPF datapath (compile from source)
-  URL:=https://github.com/ibrahmsql/zapret
-  DEPENDS:= +libelf +zlib +libbpf +kmod-sched-core
+  TITLE:=zapret eBPF programs
+  DEPENDS:=+libelf +libbpf +bpftool +kmod-bpf
 endef
 
 define Package/$(PKG_NAME)/description
-eBPF datapath для zapret: фильтры TLS/QUIC/SNI и фрагментатор на tc/XDP.
-Собирает объекты CO-RE из исходников прямо в OpenWrt SDK.
+ eBPF programs for zapret (compiled with clang/llvm).
 endef
 
-# Определяем clang из хоста
-CLANG := $(shell which clang || true)
+EBPF_DIR:=$(PKG_BUILD_DIR)/ebpf
 
-# Определяем архитектуру для eBPF
-EBPF_ARCH := $(shell echo $(ARCH) | sed 's/x86_64/x86/;s/aarch64/arm64/;s/arm.*/arm/')
-# Для отладки
-ARCH_DEBUG := $(ARCH)
+define Build/Prepare
+	mkdir -p $(EBPF_DIR)
+	$(CP) ./files/src/* $(EBPF_DIR)/
+endef
 
 define Build/Compile
-	$(INSTALL_DIR) $(PKG_BUILD_DIR)/ebpf
-	echo "=== Debug: PKG_BUILD_DIR = $(PKG_BUILD_DIR) ==="
-	echo "=== Debug: Looking for .bpf.c files in $(CURDIR)/files/src/ ==="
-	ls -la $(CURDIR)/files/src/ || echo "Directory not found"
-	echo "=== Debug: CLANG path = $(CLANG) ==="
-	echo "=== Debug: EBPF_ARCH = $(EBPF_ARCH) ==="
-	echo "=== Debug: ARCH_DEBUG = $(ARCH_DEBUG) ==="
-	echo "=== Debug: LINUX_DIR = $(LINUX_DIR) ==="
-	echo "=== Debug: STAGING_DIR = $(STAGING_DIR) ==="
-	echo "=== Debug: BUILD_DIR = $(BUILD_DIR) ==="
-	which clang || echo "clang not found in PATH"
-	clang --version || echo "clang version check failed"
-	
-	# Проверяем, что файлы существуют
-	if [ ! -d "$(CURDIR)/files/src" ]; then \
-		echo "ERROR: Source directory $(CURDIR)/files/src does not exist!"; \
-		exit 1; \
-	fi
-	
-	# Компилируем каждый .bpf.c файл
-	cd $(CURDIR)/files/src && \
-	ls -la *.bpf.c && \
-	for f in *.bpf.c; do \
-		echo "=== Processing file: $$f ==="; \
-		echo "=== Current directory: $$(pwd) ==="; \
-		if [ ! -f "$$f" ]; then \
-			echo "ERROR: File $$f does not exist!"; \
-			continue; \
-		fi; \
-		out=$(PKG_BUILD_DIR)/ebpf/$${f%.bpf.c}.bpf.o; \
-		echo "=== Output file: $$out ==="; \
-		if [ -x "$(CLANG)" ]; then \
-			echo "=== Running clang command ==="; \
-			$(CLANG) -O2 -g -target bpf \
-				-D__TARGET_ARCH_$(EBPF_ARCH) \
-				-I$(STAGING_DIR)/usr/include \
-				-c "$$f" -o "$$out" || exit 1; \
-			echo "=== Clang command completed successfully ==="; \
-		else \
-			echo "Error: clang not found on host."; \
-			exit 1; \
-		fi \
+	for f in $(notdir $(wildcard $(EBPF_DIR)/*.c)); do \
+		$(STAGING_DIR_HOSTPKG)/bin/clang -target bpf -O2 -g -Wall \
+			-I$(LINUX_DIR)/usr/include \
+			-I$(LINUX_DIR)/include/uapi \
+			-I$(LINUX_DIR)/include \
+			-c $(EBPF_DIR)/$$f -o $(EBPF_DIR)/$${f%.c}.o ; \
 	done
-	
-	# Проверяем, что объектные файлы созданы
-	echo "=== Checking compiled objects ==="
-	ls -la $(PKG_BUILD_DIR)/ebpf/*.bpf.o || echo "No .bpf.o files found!"
-	echo "=== Checking ebpf directory contents ==="
-	ls -la $(PKG_BUILD_DIR)/ebpf/ || echo "ebpf directory not found!"
 endef
 
 define Package/$(PKG_NAME)/install
-	# Копируем скомпилированные eBPF-объекты
-	$(INSTALL_DIR) $(1)/opt/zapret/ebpf
-	$(CP) $(PKG_BUILD_DIR)/ebpf/*.bpf.o $(1)/opt/zapret/ebpf/
-
-	# Копируем init-скрипт
-	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) ./files/etc/init.d/zapret-ebpf $(1)/etc/init.d/zapret-ebpf
-
-	# Копируем config
-	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_CONF) ./files/etc/config/zapret-ebpf $(1)/etc/config/zapret-ebpf
+	$(INSTALL_DIR) $(1)/lib/zapret/ebpf
+	$(INSTALL_BIN) $(EBPF_DIR)/*.o $(1)/lib/zapret/ebpf/
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
