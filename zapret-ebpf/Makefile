@@ -41,8 +41,8 @@ endef
 
 define Package/$(PKG_NAME)/install
 	# Копируем скомпилированные eBPF-объекты
-	$(INSTALL_DIR) $(1)/usr/lib/zapret/ebpf
-	$(CP) $(PKG_BUILD_DIR)/ebpf/*.bpf.o $(1)/usr/lib/zapret/ebpf/
+	$(INSTALL_DIR) $(1)/opt/zapret/ebpf
+	$(CP) $(PKG_BUILD_DIR)/ebpf/*.bpf.o $(1)/opt/zapret/ebpf/
 
 	# Копируем init-скрипт
 	$(INSTALL_DIR) $(1)/etc/init.d
