@@ -34,7 +34,7 @@ on:
 env:
   REPO_URL: https://github.com/kozhini/zapret-openwrt
   REPO_LNK: kozhini/zapret-openwrt
-  REPO_BRANCH: master
+  REPO_BRANCH: test
   BUILD_ROOT: ${{ github.workspace }}/builder
   BUILD_DATE: unknown
   REPO_DATE: unknown
@@ -112,6 +112,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ env.REPO_LNK }}
+          ref: test
           path: zapret-openwrt
 
       - name: Setup OpenWrt SDK
