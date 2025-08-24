@@ -204,6 +204,7 @@ jobs:
               ./scripts/feeds update base packages luci
               echo "=== Installing feeds ==="
               ./scripts/feeds install -a
+              ./scripts/feeds install bpftool clang llvm libelf
           fi
           PKGVER=$( grep -s '^PKG_VERSION:=.*' $PKGDIR/luci-app-zapret/Makefile | cut -d'=' -f2 )
           echo "PKGVER=$PKGVER" >> $GITHUB_ENV
