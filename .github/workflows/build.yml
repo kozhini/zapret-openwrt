@@ -251,6 +251,27 @@ jobs:
               echo "Package $pkg contents:"
               ls -la "$pkgdir"
               
+                             # Специальная проверка для zapret-ebpf (critical component)
+               if [ "$pkg" = "zapret-ebpf" ]; then
+                   echo "=== Critical check for zapret-ebpf ==="
+                   if [ -d "$pkgdir/files/src" ]; then
+                       echo "files/src directory exists:"
+                       ls -la "$pkgdir/files/src/"
+                       
+                       # Проверяем наличие .bpf.c файлов
+                       BPF_COUNT=$(find "$pkgdir/files/src" -name "*.bpf.c" | wc -l)
+                       echo "Found $BPF_COUNT .bpf.c files in zapret-ebpf"
+                       
+                       if [ "$BPF_COUNT" -eq 0 ]; then
+                           echo "ERROR: No .bpf.c files found in zapret-ebpf - this is a critical error!"
+                           exit 1
+                       fi
+                   else
+                       echo "ERROR: files/src directory not found in zapret-ebpf - this is a critical error!"
+                       exit 1
+                   fi
+               fi
+              
               if [ -f "$pkgdir/Makefile" ]; then
                   echo "Makefile for $pkg:"
                   echo "PKG_VERSION: $(grep '^PKG_VERSION:=' "$pkgdir/Makefile" || echo 'NOT FOUND')"
@@ -324,9 +345,9 @@ jobs:
               echo "=== Modifying config ===" | tee -a ./logs/build.log
               sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config 2>&1
               
-              echo "=== Building main packages ===" | tee -a ./logs/build.log
-              # Сначала собираем основные пакеты без zapret-ebpf
-              PKGLIST_MAIN=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret}/compile`
+                             echo "=== Building main packages ===" | tee -a ./logs/build.log
+               # Собираем основные пакеты (zapret-ebpf будет собран отдельно как критический компонент)
+               PKGLIST_MAIN=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret}/compile`
               echo "Main package list: $PKGLIST_MAIN" | tee -a ./logs/build.log
               
               # Запускаем сборку основных пакетов
@@ -336,18 +357,34 @@ jobs:
                   exit $BUILD_EXIT_CODE
               }
               
-              echo "=== Building zapret-ebpf separately ===" | tee -a ./logs/build.log
-              # Проверяем наличие clang
+                             echo "=== Building zapret-ebpf (critical component) ===" | tee -a ./logs/build.log
+               # Проверяем наличие clang (zapret-ebpf is required)
               if command -v clang >/dev/null 2>&1; then
                   echo "clang found, building zapret-ebpf" | tee -a ./logs/build.log
-                  make -j$MAKE_JOBS package/zapret-openwrt/zapret-ebpf/compile V=s CONFIG_CCACHE=1 2>&1 | tee -a ./logs/ebpf.log || {
-                      EBPF_EXIT_CODE=$?
-                      echo "zapret-ebpf build failed with exit code: $EBPF_EXIT_CODE" | tee -a ./logs/build.log
-                      echo "zapret-ebpf build failed, but continuing..." | tee -a ./logs/build.log
-                  }
-              else
-                  echo "clang not found, skipping zapret-ebpf" | tee -a ./logs/build.log
-              fi
+                  
+                                     # Проверяем, что файлы .bpf.c существуют
+                   echo "=== Checking for .bpf.c files ===" | tee -a ./logs/build.log
+                   BPF_FILES=$(find ./package/zapret-openwrt/zapret-ebpf/ -name "*.bpf.c" | wc -l)
+                   echo "Found $BPF_FILES .bpf.c files" | tee -a ./logs/build.log
+                   find ./package/zapret-openwrt/zapret-ebpf/ -name "*.bpf.c" | tee -a ./logs/build.log
+                   
+                   if [ "$BPF_FILES" -eq 0 ]; then
+                       echo "ERROR: No .bpf.c files found in zapret-ebpf package." | tee -a ./logs/build.log
+                       echo "ERROR: Build cannot continue without zapret-ebpf source files." | tee -a ./logs/build.log
+                       exit 1
+                   fi
+                  
+                                     make -j$MAKE_JOBS package/zapret-openwrt/zapret-ebpf/compile V=s CONFIG_CCACHE=1 2>&1 | tee -a ./logs/ebpf.log || {
+                       EBPF_EXIT_CODE=$?
+                       echo "zapret-ebpf build failed with exit code: $EBPF_EXIT_CODE" | tee -a ./logs/build.log
+                       echo "ERROR: zapret-ebpf is a critical component. Build cannot continue." | tee -a ./logs/build.log
+                       exit $EBPF_EXIT_CODE
+                   }
+                             else
+                   echo "ERROR: clang not found. zapret-ebpf requires clang for compilation." | tee -a ./logs/build.log
+                   echo "ERROR: Build cannot continue without zapret-ebpf." | tee -a ./logs/build.log
+                   exit 1
+               fi
           else
               echo "=== Running fake build ===" | tee -a ./logs/build.log
               OUT_DIR=./bin/packages/dev_x/base
@@ -357,10 +394,24 @@ jobs:
               touch $OUT_DIR/zapret-ebpf_$PKGVER-${{ matrix.arch }}.ipk
           fi
           
-          echo "=== Build completed successfully at $(date) ===" | tee -a ./logs/build.log
+                     echo "=== Build completed successfully at $(date) (all critical components built) ===" | tee -a ./logs/build.log
           OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-${{ matrix.arch }}
           mkdir -p $OUTDIR
-          cp -R ./bin/packages/*/base/. $OUTDIR/
+          
+                     echo "=== Copying only zapret-related IPK files ===" | tee -a ./logs/build.log
+           # Копируем только нужные IPK файлы
+           find ./bin/packages/*/base/ -name "zapret*.ipk" -exec cp {} $OUTDIR/ \;
+           find ./bin/packages/*/base/ -name "luci-app-zapret*.ipk" -exec cp {} $OUTDIR/ \;
+           
+           # Проверяем, что zapret-ebpf был собран успешно
+           if ! find ./bin/packages/*/base/ -name "zapret-ebpf*.ipk" | grep -q .; then
+               echo "ERROR: zapret-ebpf IPK file not found - build failed!" | tee -a ./logs/build.log
+               exit 1
+           fi
+          
+          echo "=== Copied files to $OUTDIR ===" | tee -a ./logs/build.log
+          ls -la $OUTDIR/ || echo "No files found in OUTDIR"
+          
           echo "OUTDIR=$OUTDIR" >> $GITHUB_ENV
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
 
