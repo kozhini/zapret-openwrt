@@ -61,7 +61,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="test"  # принудительно использовать ветку test
+          BRANCH="test"
           REPO_DATE=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.committer.date')
           BUILD_DATE=$( date --utc +'%Y%m%d' )
           FW_DATE=$( date --utc -d "$REPO_DATE" +'%Y-%m-%d' )
@@ -115,6 +115,19 @@ jobs:
           ref: test
           path: zapret-openwrt
 
+      - name: Verify checkout
+        shell: bash
+        run: |
+          echo "=== Checking checkout result ==="
+          if [ -d "zapret-openwrt" ]; then
+            echo "zapret-openwrt directory exists"
+            ls -la zapret-openwrt/
+          else
+            echo "zapret-openwrt directory does not exist!"
+            ls -la
+            exit 1
+          fi
+
       - name: Setup OpenWrt SDK
         working-directory: /builder
         shell: bash
@@ -138,50 +151,93 @@ jobs:
         working-directory: '/builder'
         shell: bash
         run: |
+          echo "=== Debug information ==="
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "REPO_LNK: ${{ env.REPO_LNK }}"
+          
           PKGDIR=$GITHUB_WORKSPACE/zapret-openwrt
-          cp -vr $PKGDIR ./package/zapret-openwrt/
+          echo "PKGDIR: $PKGDIR"
+          
+          echo "=== Checking if PKGDIR exists ==="
+          if [ -d "$PKGDIR" ]; then
+            echo "PKGDIR exists"
+            ls -la "$PKGDIR"
+          else
+            echo "PKGDIR does not exist!"
+            echo "Contents of GITHUB_WORKSPACE:"
+            ls -la "$GITHUB_WORKSPACE"
+            exit 1
+          fi
+          
+          echo "=== Creating package directory ==="
+          mkdir -p ./package/zapret-openwrt/
+          
+          echo "=== Copying files ==="
+          cp -vr "$PKGDIR"/* ./package/zapret-openwrt/ || {
+            echo "Copy failed with exit code: $?"
+            exit 1
+          }
+          
+          echo "=== Verifying copied files ==="
+          ls -la ./package/zapret-openwrt/
+          
           mv feeds.conf.default feeds.conf
           sed -i -e 's|base.*\.git|base https://github.com/openwrt/openwrt.git|' feeds.conf
           sed -i -e 's|packages.*\.git|packages https://github.com/openwrt/packages.git|' feeds.conf
           sed -i -e 's|luci.*\.git|luci https://github.com/openwrt/luci.git|' feeds.conf
           mkdir -p ./logs
           if [ "${{ needs.check.outputs.test_build }}" != "true" ] && [ "${{ needs.check.outputs.fake_build }}" != "true" ]; then
+              echo "=== Updating feeds ==="
               ./scripts/feeds update base packages luci
+              echo "=== Installing feeds ==="
               ./scripts/feeds install -a
           fi
           PKGVER=$( grep -s '^PKG_VERSION:=.*' $PKGDIR/luci-app-zapret/Makefile | cut -d'=' -f2 )
           echo "PKGVER=$PKGVER" >> $GITHUB_ENV
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
+          echo "=== Init completed successfully ==="
+
+      - name: Check init status
+        shell: bash
+        run: |
+          echo "=== Init step outputs ==="
+          echo "status: ${{ steps.init.outputs.status }}"
+          echo "pkgver: ${{ steps.init.outputs.pkgver }}"
           
+          if [ "${{ steps.init.outputs.status }}" != "success" ]; then
+            echo "Init step did not complete successfully!"
+            exit 1
+          fi
+
       - name: Verify packages before build
         working-directory: '/builder'
         shell: bash
         run: |
           echo "=== Verifying package structure ==="
-    
+          
           PKGDIR="./package/zapret-openwrt"
           if [ ! -d "$PKGDIR" ]; then
               echo "ERROR: Package directory $PKGDIR does not exist!"
               exit 1
           fi
-    
+          
           echo "Package directory contents:"
           ls -la "$PKGDIR"
-    
+          
           # Проверяем каждый пакет
           for pkg in zapret zapret-tpws zapret-mdig zapret-ip2net luci-app-zapret zapret-ebpf; do
               echo "--- Checking $pkg ---"
               pkgdir="$PKGDIR/$pkg"
-        
+              
               if [ ! -d "$pkgdir" ]; then
                   echo "ERROR: Package directory $pkgdir does not exist!"
                   continue
               fi
-        
+              
               echo "Package $pkg contents:"
               ls -la "$pkgdir"
-        
+              
               if [ -f "$pkgdir/Makefile" ]; then
                   echo "Makefile for $pkg:"
                   echo "PKG_VERSION: $(grep '^PKG_VERSION:=' "$pkgdir/Makefile" || echo 'NOT FOUND')"
@@ -191,7 +247,7 @@ jobs:
                   echo "ERROR: Makefile not found for $pkg"
               fi
           done
-    
+          
           echo "=== Checking feeds ==="
           if [ -f "feeds.conf" ]; then
               echo "Feeds configuration:"
@@ -199,7 +255,7 @@ jobs:
           else
               echo "ERROR: feeds.conf not found!"
           fi
-    
+          
           echo "=== Checking .config ==="
           if [ -f ".config" ]; then
               echo ".config exists"
@@ -207,38 +263,144 @@ jobs:
               echo ".config does not exist (will be created by defconfig)"
           fi
 
+      - name: Debug build variables
+        working-directory: '/builder'
+        shell: bash
+        run: |
+          echo "=== Build variables ==="
+          echo "PKGVER: $PKGVER"
+          echo "PKGTYPE: $PKGTYPE"
+          echo "test_build: ${{ needs.check.outputs.test_build }}"
+          echo "fake_build: ${{ needs.check.outputs.fake_build }}"
+          echo "matrix.arch: ${{ matrix.arch }}"
+          echo "matrix.branch: ${{ matrix.branch }}"
+          
+          echo "=== Environment variables ==="
+          env | grep -E "(PKG|BUILD|REPO)" || echo "No relevant env vars found"
+
       - name: Build packages
         id: build
         if: steps.init.outputs.status == 'success'
         working-directory: '/builder'
         shell: bash
         run: |
+          # Принудительно включить логирование
+          set -x  # Показывать все команды
+          exec 2>&1  # Перенаправить stderr в stdout
+          
+          echo "=== Starting build process ==="
+          echo "Current directory: $(pwd)"
+          echo "Contents:"
+          ls -la
+          
           MAKE_JOBS=1
           if [ "${{ needs.check.outputs.test_build }}" != "true" ] && [ "${{ needs.check.outputs.fake_build }}" != "true" ]; then
-              make defconfig
-              sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
+              echo "=== Running real build ==="
+              
+              echo "=== Making defconfig ==="
+              make defconfig 2>&1 || {
+                  echo "defconfig failed with exit code: $?"
+                  exit 1
+              }
+              
+              echo "=== Modifying config ==="
+              sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config 2>&1
+              
+              echo "=== Building packages ==="
               PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret,zapret-ebpf}/compile`
-              make -j$MAKE_JOBS $PKGLIST V=s CONFIG_CCACHE=1
+              echo "Package list: $PKGLIST"
+              
+              make -j$MAKE_JOBS $PKGLIST V=s CONFIG_CCACHE=1 2>&1 || {
+                  echo "Build failed with exit code: $?"
+                  echo "=== Build error details ==="
+                  # Попробуем получить больше информации об ошибке
+                  for pkg in zapret zapret-tpws zapret-mdig zapret-ip2net luci-app-zapret zapret-ebpf; do
+                      echo "--- Checking $pkg ---"
+                      if [ -f "package/zapret-openwrt/$pkg/Makefile" ]; then
+                          echo "Makefile exists for $pkg"
+                          grep -E "^(PKG_VERSION|PKG_SOURCE|DEPENDS)=" "package/zapret-openwrt/$pkg/Makefile" || echo "Required fields not found"
+                      else
+                          echo "Makefile missing for $pkg"
+                      fi
+                  done
+                  exit 1
+              }
           else
+              echo "=== Running fake build ==="
               OUT_DIR=./bin/packages/dev_x/base
               mkdir -p $OUT_DIR
               touch $OUT_DIR/zapret_$PKGVER-${{ matrix.arch }}.ipk
               touch $OUT_DIR/luci-app-zapret_$PKGVER-all.ipk
               touch $OUT_DIR/zapret-ebpf_$PKGVER-${{ matrix.arch }}.ipk
           fi
+          
+          echo "=== Build completed successfully ==="
           OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-${{ matrix.arch }}
           mkdir -p $OUTDIR
           cp -R ./bin/packages/*/base/. $OUTDIR/
           echo "OUTDIR=$OUTDIR" >> $GITHUB_ENV
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
 
+      - name: Save all logs
+        if: always()
+        shell: bash
+        run: |
+          echo "=== Saving all available logs ==="
+          
+          # Сохраняем логи make
+          if [ -f "/builder/logs/make.log" ]; then
+              cp "/builder/logs/make.log" "make.log"
+          fi
+          
+          # Сохраняем логи ошибок
+          if [ -f "/builder/logs/error.log" ]; then
+              cp "/builder/logs/error.log" "error.log"
+          fi
+          
+          # Сохраняем все файлы из logs
+          if [ -d "/builder/logs" ]; then
+              cp -r "/builder/logs/"* . || echo "No files to copy from logs"
+          fi
+          
+          # Создаем общий лог
+          {
+              echo "=== Build Summary ==="
+              echo "Date: $(date)"
+              echo "Architecture: ${{ matrix.arch }}"
+              echo "Branch: ${{ matrix.branch }}"
+              echo "Test build: ${{ needs.check.outputs.test_build }}"
+              echo "Fake build: ${{ needs.check.outputs.fake_build }}"
+              echo "PKGVER: $PKGVER"
+              echo "=== End Summary ==="
+          } > build-summary.log
+
       - name: Compress build logs
         if: always()
         shell: bash
         run: |
+          echo "=== Compressing build logs ==="
           LOGDIR="${BUILD_ROOT}/logs"
-          mkdir -p "$LOGDIR"
-          tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz -C "$BUILD_ROOT" logs || echo "No logs to compress"
+          echo "Log directory: $LOGDIR"
+          
+          if [ -d "$LOGDIR" ]; then
+              echo "Log directory exists, contents:"
+              ls -la "$LOGDIR"
+              
+              if [ "$(ls -A $LOGDIR)" ]; then
+                  echo "Logs found, compressing..."
+                  tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz -C "$BUILD_ROOT" logs
+              else
+                  echo "Log directory is empty"
+                  # Создаем пустой архив с информацией об ошибке
+                  echo "Build failed - no logs generated" > build-error.txt
+                  tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz build-error.txt
+              fi
+          else
+              echo "Log directory does not exist"
+              # Создаем архив с информацией об ошибке
+              echo "Build failed - log directory not created" > build-error.txt
+              tar -cJvf logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz build-error.txt
+          fi
 
       - name: Upload packages
         if: steps.build.outcome == 'success'
@@ -252,7 +414,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          path: logs-*.tar.xz
+          path: |
+            logs-*.tar.xz
+            *.log
+            build-summary.log
           name: logs-${{ matrix.branch }}-${{ matrix.arch }}
 
   release:
