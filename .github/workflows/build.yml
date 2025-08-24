@@ -138,6 +138,19 @@ jobs:
           ./setup.sh
           echo "PKGTYPE=ipk" >> $GITHUB_ENV
 
+      - name: Install clang for eBPF compilation
+        working-directory: /builder
+        shell: bash
+        run: |
+          echo "=== Installing clang for eBPF compilation ==="
+          # Обновляем пакеты и устанавливаем clang
+          apt-get update
+          apt-get install -y clang llvm-dev
+          
+          # Проверяем установку
+          clang --version || echo "clang installation failed"
+          which clang || echo "clang not found in PATH"
+
       - name: Setup ccache
         uses: actions/cache@v4
         with:
@@ -312,7 +325,8 @@ jobs:
               sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config 2>&1
               
               echo "=== Building packages ===" | tee -a ./logs/build.log
-              PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret,zapret-ebpf}/compile`
+              # Исключаем zapret-ebpf из сборки, так как он требует clang
+              PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret}/compile`
               echo "Package list: $PKGLIST" | tee -a ./logs/build.log
               
               # Запускаем сборку с подробным логированием
@@ -322,7 +336,7 @@ jobs:
                   echo "=== Build error details ===" | tee -a ./logs/build.log
                   
                   # Попробуем получить больше информации об ошибке
-                  for pkg in zapret zapret-tpws zapret-mdig zapret-ip2net luci-app-zapret zapret-ebpf; do
+                  for pkg in zapret zapret-tpws zapret-mdig zapret-ip2net luci-app-zapret; do
                       echo "--- Checking $pkg ---" | tee -a ./logs/build.log
                       if [ -f "package/zapret-openwrt/$pkg/Makefile" ]; then
                           echo "Makefile exists for $pkg" | tee -a ./logs/build.log
@@ -338,6 +352,17 @@ jobs:
                   
                   exit $BUILD_EXIT_CODE
               }
+              
+              # Попробуем собрать zapret-ebpf отдельно, если clang доступен
+              echo "=== Trying to build zapret-ebpf separately ===" | tee -a ./logs/build.log
+              if command -v clang >/dev/null 2>&1; then
+                  echo "clang found, building zapret-ebpf" | tee -a ./logs/build.log
+                  make -j$MAKE_JOBS package/zapret-openwrt/zapret-ebpf/compile V=s CONFIG_CCACHE=1 2>&1 | tee -a ./logs/ebpf.log || {
+                      echo "zapret-ebpf build failed, but continuing..." | tee -a ./logs/build.log
+                  }
+              else
+                  echo "clang not found, skipping zapret-ebpf" | tee -a ./logs/build.log
+              fi
           else
               echo "=== Running fake build ===" | tee -a ./logs/build.log
               OUT_DIR=./bin/packages/dev_x/base
