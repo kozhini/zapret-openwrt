@@ -10,7 +10,7 @@ PKG_LICENSE_FILES:=docs/LICENSE.txt
 PKG_SOURCE_URL:=https://github.com/ibrahmsql/zapret.git
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_VERSION:=c6861598fd6851882b5c74f0f32e4fd47adb792b
-PKG_SOURCE_DATE:=2025-08-25
+PKG_SOURCE_DATE:=2025-08-20
 
 #PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 #PKG_SOURCE_URL:=https://github.com/ibrahmsql/zapret/archive/refs/tags/v$(PKG_VERSION).tar.gz?
