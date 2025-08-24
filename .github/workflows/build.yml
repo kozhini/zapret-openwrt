@@ -61,7 +61,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH=$(gh api repos/$REPO_LNK --jq '.default_branch')
+          BRANCH="test"  # принудительно использовать ветку test
           REPO_DATE=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.committer.date')
           BUILD_DATE=$( date --utc +'%Y%m%d' )
           FW_DATE=$( date --utc -d "$REPO_DATE" +'%Y-%m-%d' )
