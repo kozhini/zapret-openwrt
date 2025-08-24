@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=zapret
 PKG_VERSION:=71.3-test
 
-PKG_MAINTAINER:=ibrahmsql
+PKG_MAINTAINER:=kozhini
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=docs/LICENSE.txt
 
