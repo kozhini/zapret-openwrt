@@ -40,6 +40,8 @@ define Build/Compile
 	echo "=== Debug: EBPF_ARCH = $(EBPF_ARCH) ==="
 	echo "=== Debug: ARCH_DEBUG = $(ARCH_DEBUG) ==="
 	echo "=== Debug: LINUX_DIR = $(LINUX_DIR) ==="
+	echo "=== Debug: STAGING_DIR = $(STAGING_DIR) ==="
+	echo "=== Debug: BUILD_DIR = $(BUILD_DIR) ==="
 	which clang || echo "clang not found in PATH"
 	clang --version || echo "clang version check failed"
 	
@@ -50,10 +52,11 @@ define Build/Compile
 	fi
 	
 	# Компилируем каждый .bpf.c файл
-	cd $(CURDIR)/files/src && for f in *.bpf.c; do \
+	cd $(CURDIR)/files/src && \
+	ls -la *.bpf.c && \
+	for f in *.bpf.c; do \
 		echo "=== Processing file: $$f ==="; \
 		echo "=== Current directory: $$(pwd) ==="; \
-		echo "=== File exists check: $$(ls -la "$$f") ==="; \
 		if [ ! -f "$$f" ]; then \
 			echo "ERROR: File $$f does not exist!"; \
 			continue; \
@@ -64,10 +67,6 @@ define Build/Compile
 			echo "=== Running clang command ==="; \
 			$(CLANG) -O2 -g -target bpf \
 				-D__TARGET_ARCH_$(EBPF_ARCH) \
-				-I$(LINUX_DIR)/include \
-				-I$(LINUX_DIR)/include/uapi \
-				-I$(LINUX_DIR)/arch/$(ARCH)/include \
-				-I$(LINUX_DIR)/arch/$(ARCH)/include/uapi \
 				-I$(STAGING_DIR)/usr/include \
 				-c "$$f" -o "$$out" || exit 1; \
 			echo "=== Clang command completed successfully ==="; \
