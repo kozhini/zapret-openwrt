@@ -324,34 +324,30 @@ jobs:
               echo "=== Modifying config ===" | tee -a ./logs/build.log
               sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config 2>&1
               
-              echo "=== Building packages ===" | tee -a ./logs/build.log
-              # Собираем все пакеты для aarch64_cortex-a53
-              PKGLIST=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret,zapret-ebpf}/compile`
-              echo "Package list: $PKGLIST" | tee -a ./logs/build.log
+              echo "=== Building main packages ===" | tee -a ./logs/build.log
+              # Сначала собираем основные пакеты без zapret-ebpf
+              PKGLIST_MAIN=`echo package/zapret-openwrt/{zapret,zapret-tpws,zapret-mdig,zapret-ip2net,luci-app-zapret}/compile`
+              echo "Main package list: $PKGLIST_MAIN" | tee -a ./logs/build.log
               
-              # Запускаем сборку с подробным логированием
-              make -j$MAKE_JOBS $PKGLIST V=s CONFIG_CCACHE=1 2>&1 | tee -a ./logs/make.log || {
+              # Запускаем сборку основных пакетов
+              make -j$MAKE_JOBS $PKGLIST_MAIN V=s CONFIG_CCACHE=1 2>&1 | tee -a ./logs/make.log || {
                   BUILD_EXIT_CODE=$?
-                  echo "Build failed with exit code: $BUILD_EXIT_CODE" | tee -a ./logs/build.log
-                  echo "=== Build error details ===" | tee -a ./logs/build.log
-                  
-                  # Попробуем получить больше информации об ошибке
-                  for pkg in zapret zapret-tpws zapret-mdig zapret-ip2net luci-app-zapret zapret-ebpf; do
-                      echo "--- Checking $pkg ---" | tee -a ./logs/build.log
-                      if [ -f "package/zapret-openwrt/$pkg/Makefile" ]; then
-                          echo "Makefile exists for $pkg" | tee -a ./logs/build.log
-                          grep -E "^(PKG_VERSION|PKG_SOURCE|DEPENDS)=" "package/zapret-openwrt/$pkg/Makefile" | tee -a ./logs/build.log || echo "Required fields not found" | tee -a ./logs/build.log
-                      else
-                          echo "Makefile missing for $pkg" | tee -a ./logs/build.log
-                      fi
-                  done
-                  
-                  # Сохраняем последние строки логов для диагностики
-                  echo "=== Last 50 lines of make.log ===" | tee -a ./logs/build.log
-                  tail -50 ./logs/make.log | tee -a ./logs/build.log
-                  
+                  echo "Main build failed with exit code: $BUILD_EXIT_CODE" | tee -a ./logs/build.log
                   exit $BUILD_EXIT_CODE
               }
+              
+              echo "=== Building zapret-ebpf separately ===" | tee -a ./logs/build.log
+              # Проверяем наличие clang
+              if command -v clang >/dev/null 2>&1; then
+                  echo "clang found, building zapret-ebpf" | tee -a ./logs/build.log
+                  make -j$MAKE_JOBS package/zapret-openwrt/zapret-ebpf/compile V=s CONFIG_CCACHE=1 2>&1 | tee -a ./logs/ebpf.log || {
+                      EBPF_EXIT_CODE=$?
+                      echo "zapret-ebpf build failed with exit code: $EBPF_EXIT_CODE" | tee -a ./logs/build.log
+                      echo "zapret-ebpf build failed, but continuing..." | tee -a ./logs/build.log
+                  }
+              else
+                  echo "clang not found, skipping zapret-ebpf" | tee -a ./logs/build.log
+              fi
           else
               echo "=== Running fake build ===" | tee -a ./logs/build.log
               OUT_DIR=./bin/packages/dev_x/base
