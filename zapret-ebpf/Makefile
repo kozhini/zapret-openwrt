@@ -29,12 +29,12 @@ CLANG := $(shell which clang || true)
 define Build/Compile
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/ebpf
 	echo "=== Debug: PKG_BUILD_DIR = $(PKG_BUILD_DIR) ==="
-	echo "=== Debug: Looking for .bpf.c files in $(PKG_BUILD_DIR)/files/src/ ==="
-	ls -la $(PKG_BUILD_DIR)/files/src/ || echo "Directory not found"
+	echo "=== Debug: Looking for .bpf.c files in $(CURDIR)/files/src/ ==="
+	ls -la $(CURDIR)/files/src/ || echo "Directory not found"
 	echo "=== Debug: CLANG path = $(CLANG) ==="
 	which clang || echo "clang not found in PATH"
 	clang --version || echo "clang version check failed"
-	for f in $(PKG_BUILD_DIR)/files/src/*.bpf.c; do \
+	for f in $(CURDIR)/files/src/*.bpf.c; do \
 		echo "=== Processing file: $$f ==="; \
 		if [ ! -f "$$f" ]; then \
 			echo "ERROR: File $$f does not exist!"; \
