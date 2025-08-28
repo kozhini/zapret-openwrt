@@ -11,14 +11,14 @@ PKG_MAINTAINER:=bol-van
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=docs/LICENSE.txt
 
-PKG_SOURCE_URL:=https://github.com/bol-van/zapret.git
-PKG_SOURCE_PROTO:=git
-PKG_SOURCE_VERSION:=dc5efebee295c2fb392c73b5e79b61cc69aed8b6
-PKG_SOURCE_DATE:=2025-08-22
+#PKG_SOURCE_URL:=https://github.com/bol-van/zapret.git
+#PKG_SOURCE_PROTO:=git
+#PKG_SOURCE_VERSION:=dc5efebee295c2fb392c73b5e79b61cc69aed8b6
+#PKG_SOURCE_DATE:=2025-08-22
 
-#PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
-#PKG_SOURCE_URL:=https://github.com/bol-van/zapret/archive/refs/tags/v$(PKG_VERSION).tar.gz?
-#PKG_HASH:=skip
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://github.com/bol-van/zapret/archive/refs/tags/v$(PKG_VERSION).tar.gz?
+PKG_HASH:=skip
 
 include $(INCLUDE_DIR)/package.mk
 
