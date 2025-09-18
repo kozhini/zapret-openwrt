@@ -90,10 +90,6 @@ return view.extend({
         o.rmempty = false;
         o.default = 1;
 
-        o = s.taboption(tabname, form.Flag, 'FILTER_TTL_EXPIRED_ICMP', 'FILTER_TTL_EXPIRED_ICMP');
-        o.rmempty = false;
-        o.default = 1;
-
         o = s.taboption(tabname, form.ListValue, 'MODE_FILTER', _('MODE_FILTER'));
         //o.value('none',         'none');
         //o.value('ipset',        'ipset');
@@ -171,6 +167,11 @@ return view.extend({
         //o.description = _("nfqws option for DPI desync attack");
         o.rmempty     = false;
         o.datatype    = 'string';
+
+        o = s.taboption(tabname, form.Value, 'FILTER_MARK', _('FILTER_MARK'));
+        o.rmempty     = false;
+        o.datatype    = 'string';
+        o.validate = function(section_id, value) { return (value.trim() == '') ? "\t" : value.trim(); };
         
         o = s.taboption(tabname, form.Value, 'NFQWS_PORTS_TCP', _('NFQWS_PORTS_TCP'));
         o.rmempty     = false;
