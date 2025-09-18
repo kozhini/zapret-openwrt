@@ -307,11 +307,11 @@ jobs:
           name: logs-${{ matrix.branch }}-${{ matrix.arch }}
 
   release:
-    needs: [ check, build ]
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
+      needs: [ check, build ]
+      permissions:
+        contents: write
+      runs-on: ubuntu-latest
+      steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -328,23 +328,28 @@ jobs:
           ls -la
           echo "------------- DIR END -------------------"
           
-          # Create a flat directory structure for all packages
           mkdir -p release_files
           
-          # Find all ipk files and copy them to release_files with descriptive names
           find . -type f -name "*.ipk" | while read file; do
-            # Extract architecture from directory path
             arch=$(echo "$file" | grep -oP 'zapret,ipk,\K[^/]+')
             filename=$(basename "$file")
-            
-            # Create new filename with architecture prefix
-            new_filename="${arch}_${filename}"
-            
+
+            # убираем ведущий префикс arch_
+            base="${filename#${arch}_}"
+            # убираем хвост _arch.ipk
+            base="${base%_${arch}.ipk}"
+
+            # если это luci-app-zapret, всегда ставим all
+            if [[ "$base" == luci-app-zapret* ]]; then
+              new_filename="${base}_all.ipk"
+            else
+              new_filename="${base}_${arch}.ipk"
+            fi
+
             echo "Copying $file to release_files/$new_filename"
             cp "$file" "release_files/$new_filename"
           done
           
-          # List all files that will be released
           echo "Files prepared for release:"
           ls -lh ./release_files/
 
