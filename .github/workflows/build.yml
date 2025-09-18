@@ -359,8 +359,4 @@ jobs:
           name: zapret v${{ needs.build.outputs.pkgver }}
           body: |
             zapret v${{ needs.build.outputs.pkgver }} for OpenWrt
-            
-            Individual IPK package files for aarch64_cortex-a53 architecture:
-            - All files with `aarch64_cortex-a53_` prefix are for aarch64_cortex-a53 architecture
-            - All files are `.ipk` packages for OpenWrt 24.10
           files: ./release_files/*
