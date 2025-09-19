@@ -170,8 +170,8 @@ return view.extend({
 
         o = s.taboption(tabname, form.Value, 'FILTER_MARK', _('FILTER_MARK'));
         o.rmempty     = false;
-        o.datatype    = 'string';
-        o.validate = function(section_id, value) { return (value.trim() == '') ? "\t" : value.trim(); };
+        o.validate = function(section_id, value) { return true; };
+        o.write = function(section_id, value) { return form.Value.prototype.write.call(this, section_id, (value == null || value.trim() == '') ? "\t" : value.trim()); };
         
         o = s.taboption(tabname, form.Value, 'NFQWS_PORTS_TCP', _('NFQWS_PORTS_TCP'));
         o.rmempty     = false;
