@@ -3,4 +3,4 @@
 
 Zapret is not a VPN! Zapret is an Anti-DPI utility!
 
-Latest Zapret commite getting automaticaly
+Latest Zapret commites are getting automaticaly
