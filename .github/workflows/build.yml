@@ -124,7 +124,7 @@ jobs:
       pkgver: ${{ steps.build.outputs.pkgver }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ env.REPO_LNK }}
           path: zapret-openwrt
@@ -145,13 +145,13 @@ jobs:
           ls -lh
           echo "PKGTYPE=ipk" >> $GITHUB_ENV
 
-      - name: Setup ccache
-        uses: actions/cache@v4
-        with:
-          path: '/builder/.ccache'
-          key: ccache-${{ matrix.arch }}-${{ matrix.branch }}-${{ github.run_id }}
-          restore-keys: |
-            ccache-${{ matrix.arch }}-${{ matrix.branch }}-
+    #  - name: Setup ccache
+     #   uses: actions/cache@v4
+     #   with:
+      #    path: '/builder/.ccache'
+      #    key: ccache-${{ matrix.arch }}-${{ matrix.branch }}-${{ github.run_id }}
+      #    restore-keys: |
+      #      ccache-${{ matrix.arch }}-${{ matrix.branch }}-
             
       - name: Update Makefiles to latest commits
         run: |
@@ -282,14 +282,14 @@ jobs:
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Compress build logs
-        if: always()
-        env:
-          ARCH: ${{ matrix.arch }}
-          BRANCH: ${{ matrix.branch }}
-          LOGS_DIR: '/builder/logs'
-        run: |
-          tar -cJvf logs-$BRANCH-$ARCH.tar.xz $LOGS_DIR
+#      - name: Compress build logs
+ #       if: always()
+ #       env:
+#          ARCH: ${{ matrix.arch }}
+#          BRANCH: ${{ matrix.branch }}
+ #         LOGS_DIR: '/builder/logs'
+#        run: |
+ #         tar -cJvf logs-$BRANCH-$ARCH.tar.xz $LOGS_DIR
 
       - name: Upload packages
         if: steps.build.outcome == 'success'
