@@ -274,6 +274,15 @@ jobs:
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
           echo "status=success" >> $GITHUB_OUTPUT
 
+      - name: Compress build logs
+        if: always()
+        env:
+          ARCH: ${{ matrix.arch }}
+          BRANCH: ${{ matrix.branch }}
+          LOGS_DIR: '/builder/logs'
+        run: |
+          tar -cJvf logs-$BRANCH-$ARCH.tar.xz $LOGS_DIR
+
       - name: Upload packages
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@main
