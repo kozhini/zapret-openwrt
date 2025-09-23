@@ -3,4 +3,4 @@
 
 Zapret is not a VPN! Zapret is an Anti-DPI utility!
 
-Latest Zapret commites are getting automaticaly
+Dont pay attention on MIkefiles dates\hashes, latest commites will be recived automaticaly
