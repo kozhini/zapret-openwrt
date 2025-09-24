@@ -135,9 +135,17 @@ jobs:
           BRANCH: ${{ matrix.branch }}
         shell: bash
         run: |
-          curl -s https://git.openwrt.org/keyring.git/plain/gpg/0x1D53D1877742E911.asc | gpg --import
+          # Импорт GPG ключа OpenWrt
+          curl -sSL https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc -o openwrt-key.asc
+          gpg --import openwrt-key.asc
+
+          # Отключаем проверку подписей в setup.sh
           sed -i 's/gpg --/#gpg --/g' setup.sh
+
+          # Отключаем удаление ключей после setup
           sed -r -i 's/^rm.+//' setup.sh
+
+          # Запуск setup
           ./setup.sh
 
           ls -lh
