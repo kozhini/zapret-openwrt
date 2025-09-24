@@ -106,7 +106,7 @@ jobs:
   build:
     needs: check
     #if: needs.check.outputs.is_active == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -135,17 +135,17 @@ jobs:
           BRANCH: ${{ matrix.branch }}
         shell: bash
         run: |
-          # Импорт GPG ключа OpenWrt
+          echo "🔑 Импортируем GPG ключ OpenWrt"
           curl -sSL https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc -o openwrt-key.asc
           gpg --import openwrt-key.asc
 
-          # Отключаем проверку подписей в setup.sh
+          echo "✂️ Отключаем проверку подписей в setup.sh"
           sed -i 's/gpg --/#gpg --/g' setup.sh
 
-          # Отключаем удаление ключей после setup
+          echo "🗑️ Отключаем удаление ключей после setup"
           sed -r -i 's/^rm.+//' setup.sh
 
-          # Запуск setup
+          echo "⚙️ Запуск setup"
           ./setup.sh
 
           ls -lh
