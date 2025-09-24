@@ -135,15 +135,30 @@ jobs:
           BRANCH: ${{ matrix.branch }}
         shell: bash
         run: |
-          # gpg --verbose --recv-keys 0x1D53D1877742E911
-          gpg --verbose --import <(wget -qO- 'https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc')
-          # disable check signatures
+          curl -s https://git.openwrt.org/keyring.git/plain/gpg/0x1D53D1877742E911.asc | gpg --import
           sed -i 's/gpg --/#gpg --/g' setup.sh
-          # disable cleanup keys
           sed -r -i 's/^rm.+//' setup.sh
           ./setup.sh
+
           ls -lh
           echo "PKGTYPE=ipk" >> $GITHUB_ENV
+
+
+#      - name: Setup OpenWrt SDK
+#        working-directory: /builder
+#        env:
+#          BRANCH: ${{ matrix.branch }}
+#        shell: bash
+#        run: |
+#          # gpg --verbose --recv-keys 0x1D53D1877742E911
+#          gpg --verbose --import <(wget -qO- 'https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc')
+#          # disable check signatures
+#          sed -i 's/gpg --/#gpg --/g' setup.sh
+#          # disable cleanup keys
+#          sed -r -i 's/^rm.+//' setup.sh
+#          ./setup.sh
+#          ls -lh
+#          echo "PKGTYPE=ipk" >> $GITHUB_ENV
             
       - name: Update Makefiles to latest commits
         run: |
