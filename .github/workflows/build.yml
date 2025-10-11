@@ -156,7 +156,6 @@ jobs:
               REPO_URL=$(grep -E "^PKG_SOURCE_URL.*=" "$mf" | sed -E 's/.*= *//')
               echo "🔄 Updating $mf from $REPO_URL"
 
-              # Определяем ветку для специфичных пакетов
               case "$mf" in
                 *zapret-ip2net/Makefile)
                   LATEST_COMMIT=$(git ls-remote "$REPO_URL" HEAD | cut -f1)
@@ -327,12 +326,9 @@ jobs:
             arch=$(echo "$file" | grep -oP 'zapret,ipk,\K[^/]+')
             filename=$(basename "$file")
 
-            # убираем ведущий префикс arch_
             base="${filename#${arch}_}"
-            # убираем хвост _arch.ipk
             base="${base%_${arch}.ipk}"
 
-            # если это luci-app-zapret, всегда ставим all
             if [[ "$base" == luci-app-zapret* ]]; then
               new_filename="${base}_all.ipk"
             else
