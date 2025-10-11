@@ -412,6 +412,13 @@ check_system()
 	else
 		uname -a
 	fi
+	[ -f /etc/os-release ] && {
+		. /etc/os-release
+		[ -n "$PRETTY_NAME" ] && echo "distro: $PRETTY_NAME"
+		[ -n "$OPENWRT_RELEASE" ] && echo "openwrt release: $OPENWRT_RELEASE"
+		[ -n "$OPENWRT_BOARD" ] && echo "openwrt board: $OPENWRT_BOARD"
+		[ -n "$OPENWRT_ARCH" ] && echo "openwrt arch: $OPENWRT_ARCH"
+	}
 	echo firewall type is $FWTYPE
 	echo CURL=$CURL
 	$CURL --version
@@ -1268,7 +1275,7 @@ pktws_curl_test_update_vary()
 	# $5,$6,... - strategy
 
 	local testf=$1 sec=$2 domain=$3 desync=$4 proto splits= pos fake ret=1
-	local fake1=- fake2=- fake3=-
+	local fake1=- fake2=- fake3=- fake4=-
 	
 	shift; shift; shift; shift
 	
@@ -1277,13 +1284,17 @@ pktws_curl_test_update_vary()
 	test_has_fake $desync && {
 		fake1="--dpi-desync-fake-$proto=0x00000000"
 		[ "$sec" = 0 ] || {
-			fake2="--dpi-desync-fake-tls=0x00000000 --dpi-desync-fake-tls=! --dpi-desync-fake-tls-mod=rnd,rndsni,dupsid"
-			fake3="--dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap"
+			fake2='--dpi-desync-fake-tls=0x00000000 --dpi-desync-fake-tls=! --dpi-desync-fake-tls-mod=rnd,rndsni,dupsid'
+			# this splits actual fake to '1603' and modified standard fake from offset 2
+			fake3='--dpi-desync-fake-tls=0x1603 --dpi-desync-fake-tls=!+2 --dpi-desync-fake-tls-mod=rnd,dupsid,rndsni --dpi-desync-fake-tcp-mod=seq'
+			fake4='--dpi-desync-fake-tls-mod=rnd,dupsid,rndsni,padencap'
 		}
 	}
 	if test_has_fakedsplit $desync ; then
 		splits="method+2 midsld"
 		[ "$sec" = 0 ] || splits="1 midsld"
+		# do not send fake first
+		fake1='--dpi-desync-fakedsplit-mod=altorder=1'
 	elif test_has_split $desync ; then
 		splits="method+2 midsld"
 		[ "$sec" = 0 ] || splits="1 midsld 1,midsld"
@@ -1293,7 +1304,7 @@ pktws_curl_test_update_vary()
 		fake2="--dpi-desync-hostfakesplit-midhost=midsld"
 		fake3="--dpi-desync-hostfakesplit-mod=altorder=1 --dpi-desync-hostfakesplit-midhost=midsld"
 	}
-	for fake in '' "$fake1" "$fake2" "$fake3" ; do
+	for fake in '' "$fake1" "$fake2" "$fake3" "$fake4" ; do
 		[ "$fake" = "-" ] && continue
 		if [ -n "$splits" ]; then
 			for pos in $splits ; do
