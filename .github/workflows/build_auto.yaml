@@ -1,4 +1,4 @@
-name: Automatic Build
+name: Build Zapret Packages
 
 on:
   # ЕЖЕДНЕВНЫЙ ЗАПУСК: Проверка upstream-релиза в 03:15 UTC.
@@ -43,7 +43,9 @@ env:
   FAKE_BUILD: ${{ github.event.inputs.fake_build == 'true' }}
   MAX_SPEED: ${{ github.event.inputs.max_speed != 'false' }}
   TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
-  REPO_URL: https://github.com/${{ env.REPO_LNK }}
+  
+  # REPO_URL был удален, чтобы исправить ошибку. Он будет собран по мере необходимости.
+  
   REPO_BRANCH: master
   BUILD_ROOT: ${{ github.workspace }}/builder
   BUILD_DATE: unknown
@@ -138,13 +140,10 @@ jobs:
           
           echo "REPO_DATE=$COMMIT_DATE" >> $GITHUB_ENV
           
-      - name: Skip Build if Tag Exists
+      - name: Log if Build is Skipped
         if: steps.gh_upstream.outputs.should_build == 'false'
         run: |
-          echo "Skipping subsequent jobs as the upstream tag already exists locally."
-          # Для корректного пропуска остальных jobs, которые зависят от этого,
-          # мы используем output 'should_build' в условии 'if' этих jobs.
-          # Этот шаг просто логирует пропуск.
+          echo "Skipping build and release jobs as the upstream tag already exists locally."
           
   build:
     needs: check
