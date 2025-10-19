@@ -1,4 +1,4 @@
-name: Build Zapret Packages
+name: Automatic Build
 
 on:
   # ЕЖЕДНЕВНЫЙ ЗАПУСК: Проверка upstream-релиза в 03:15 UTC.
