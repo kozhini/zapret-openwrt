@@ -1,11 +1,11 @@
-name: Automatic build
+name: Automatic Build
 
 on:
-  # АВТОМАТИЧЕСКИЙ ЗАПУСК: запускается при публикации нового релиза
-  release:
-    types: [published]
-
-  # РУЧНОЙ ЗАПУСК: для тестирования
+  # ЕЖЕДНЕВНЫЙ ЗАПУСК: Проверка upstream-релиза в 03:15 UTC.
+  schedule:
+    - cron: '15 3 * * *' 
+  
+  # РУЧНОЙ ЗАПУСК: для тестирования, когда нужно пропустить проверку
   workflow_dispatch:
     inputs:
       test_build:
@@ -34,12 +34,16 @@ on:
         - false
 
 env:
+  # Репозиторий-источник (Upstream)
+  UPSTREAM_REPO: bol-van/zapret
+  # Ваш репозиторий для сборки
+  REPO_LNK: kozhini/zapret-openwrt 
+  
   TEST_BUILD: ${{ github.event.inputs.test_build == 'true' }}
   FAKE_BUILD: ${{ github.event.inputs.fake_build == 'true' }}
   MAX_SPEED: ${{ github.event.inputs.max_speed != 'false' }}
   TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
-  REPO_URL: https://github.com/kozhini/zapret-openwrt
-  REPO_LNK: kozhini/zapret-openwrt
+  REPO_URL: https://github.com/${{ env.REPO_LNK }}
   REPO_BRANCH: master
   BUILD_ROOT: ${{ github.workspace }}/builder
   BUILD_DATE: unknown
@@ -50,64 +54,102 @@ jobs:
   check:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.gh.outputs.tag }}
-      date: ${{ steps.gh.outputs.date }}
-      sha: ${{ steps.gh.outputs.sha }}
-      url: ${{ steps.gh.outputs.url }}
-      message: ${{ steps.gh.outputs.message }}
-      build_date: ${{ steps.gh.outputs.build_date }}
-      fw_date: ${{ steps.gh.outputs.fw_date }}
-      is_active: ${{ steps.activity.outputs.is_active }}
+      tag: ${{ steps.gh_upstream.outputs.tag }} 
+      date: ${{ steps.gh_upstream.outputs.date }}
+      sha: ${{ steps.gh_upstream.outputs.sha }}
+      url: ${{ steps.gh_upstream.outputs.url }}
+      message: ${{ steps.gh_upstream.outputs.message }}
+      build_date: ${{ steps.gh_upstream.outputs.build_date }}
+      fw_date: ${{ steps.gh_upstream.outputs.fw_date }}
+      is_active: ${{ steps.gh_upstream.outputs.should_build }} # Используем should_build как is_active
       test_build: ${{ env.TEST_BUILD }}
       fake_build: ${{ env.FAKE_BUILD }}
+      should_build: ${{ steps.gh_upstream.outputs.should_build }} 
+      
     steps:
-      - name: Get repo data via GH API
-        id: gh
+      - name: Get Upstream Release Data and Check for New Version
+        id: gh_upstream
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Tag name from GITHUB_REF_NAME: $GITHUB_REF_NAME"
-          echo "Tag name from github.ref_name: ${{ github.ref_name }}"
-          BRANCH=$(gh api repos/$REPO_LNK --jq '.default_branch')
-          REPO_DATE=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.committer.date')
           BUILD_DATE=$( date --utc +'%Y%m%d' )
           FW_DATE=$( date --utc +'%Y-%m-%d' )
+          SHOULD_BUILD=false
+          
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # --- РУЧНОЙ ЗАПУСК ---
+            echo "Workflow dispatched manually. Forcing build."
+            TAG_NAME="manual-build-$(date +%Y%m%d%H%M)"
+            
+            # Получаем последние данные коммита из вашего репозитория для информации о SHA
+            COMMIT_DATA=$(gh api repos/${{ env.REPO_LNK }}/commits/$REPO_BRANCH)
+            COMMIT_SHA=$(echo $COMMIT_DATA | jq -r '.sha[0:7]')
+            COMMIT_URL=$(echo $COMMIT_DATA | jq -r '.html_url')
+            COMMIT_DATE=$(echo $COMMIT_DATA | jq -r '.commit.committer.date')
+            MESSAGE="Manual build triggered on commit $COMMIT_SHA."
+            SHOULD_BUILD=true
+            
+          elif [ "${{ github.event_name }}" == "schedule" ]; then
+            # --- ЗАПУСК ПО РАСПИСАНИЮ (ПРОВЕРКА) ---
+            echo "Checking latest release in ${{ env.UPSTREAM_REPO }}..."
+            
+            # Получаем последний РЕЛИЗ (не просто тег) из Upstream
+            RELEASE_DATA=$(gh api repos/${{ env.UPSTREAM_REPO }}/releases/latest --jq '{tag_name, target_commitish, published_at, html_url, body}')
+            
+            UPSTREAM_TAG=$(echo $RELEASE_DATA | jq -r '.tag_name')
+            UPSTREAM_COMMIT_SHA=$(echo $RELEASE_DATA | jq -r '.target_commitish' | cut -c1-7)
+            UPSTREAM_DATE=$(echo $RELEASE_DATA | jq -r '.published_at')
+            COMMIT_URL=$(echo $RELEASE_DATA | jq -r '.html_url')
+            MESSAGE=$(echo $RELEASE_DATA | jq -r '.body' | head -n 1)
+
+            TAG_NAME=$UPSTREAM_TAG
+            COMMIT_SHA=$UPSTREAM_COMMIT_SHA
+            COMMIT_DATE=$UPSTREAM_DATE
+            
+            echo "Latest Upstream Tag: $UPSTREAM_TAG"
+
+            # Проверяем, существует ли уже релиз с таким же тегом в текущем репозитории (kozhini/zapret)
+            TAG_EXISTS=$(gh api repos/${{ github.repository }}/releases/tags/$UPSTREAM_TAG --silent --fail || echo "NOT_FOUND")
+            
+            if [ "$TAG_EXISTS" != "NOT_FOUND" ]; then
+              echo "✅ Release tag $UPSTREAM_TAG already exists in ${{ github.repository }}. Skipping build."
+              SHOULD_BUILD=false
+            else
+              echo "🚀 New release tag $UPSTREAM_TAG found! Starting build."
+              SHOULD_BUILD=true
+            fi
+          fi
+          
+          # Установка выходных данных
+          REPO_DATE=$( date --utc -d "$COMMIT_DATE" +%Y%m%d )
+          
           {
-            echo "tag=$GITHUB_REF_NAME"
-            echo "date=$(date --utc -d $REPO_DATE +%Y%m%d)"
-            echo "sha=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.sha[0:7]')"
-            echo "url=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.html_url')"
+            echo "tag=$TAG_NAME"
+            echo "date=$REPO_DATE"
+            echo "sha=$COMMIT_SHA"
+            echo "url=$COMMIT_URL"
             echo "message<<EOF"
-            gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.message'
+            echo "$MESSAGE"
             echo EOF
             echo "build_date=$BUILD_DATE"
             echo "fw_date=$FW_DATE"
+            echo "should_build=$SHOULD_BUILD"
           } >> $GITHUB_OUTPUT
-          echo "REPO_DATE=$REPO_DATE" >> $GITHUB_ENV
-
-      - name: Check for repo activity
-        id: activity
-        env:
-          REPO_DATE: ${{ env.REPO_DATE }}
-          URL: ${{ steps.gh.outputs.url }}
+          
+          echo "REPO_DATE=$COMMIT_DATE" >> $GITHUB_ENV
+          
+      - name: Skip Build if Tag Exists
+        if: steps.gh_upstream.outputs.should_build == 'false'
         run: |
-          TIMESTAMP=$(date --utc -d $REPO_DATE +%s)
-          DAYS=$(( ( $(date --utc +%s) - $TIMESTAMP ) / 86400 ))
-          echo "Repository activity: $(date --utc -d $REPO_DATE)"
-          echo "Commit: $URL"
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            is_active=true
-          elif [[ $DAYS -lt 1 ]] ; then
-            is_active=true
-          else
-            echo "Repository not updated within last 24 hours."
-            is_active=false
-          fi
-          echo "is_active=$is_active" >> $GITHUB_OUTPUT
-
+          echo "Skipping subsequent jobs as the upstream tag already exists locally."
+          # Для корректного пропуска остальных jobs, которые зависят от этого,
+          # мы используем output 'should_build' в условии 'if' этих jobs.
+          # Этот шаг просто логирует пропуск.
+          
   build:
     needs: check
-    #if: needs.check.outputs.is_active == 'true'
+    # Условие для запуска: только если 'should_build' == true
+    if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -177,7 +219,8 @@ jobs:
 
               sed -i "s/^PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=$LATEST_COMMIT/" "$mf"
               sed -i "s/^PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=$LATEST_HASH/" "$mf"
-              sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=1.0.$TODAY/" "$mf"
+              # Используем дату компиляции для PKG_VERSION
+              sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=1.0.$TODAY/" "$mf" 
 
             elif grep -q "^PKG_VERSION" "$mf"; then
               echo "🔄 Updating PKG_VERSION date in $mf"
@@ -262,11 +305,6 @@ jobs:
           
           find ./bin/packages/*/base -type f ! -regex ".*\(zapret\).*\.ipk$" -delete
           
-          #echo ">>>>>>> build a repository index to make the output directory usable as local OPKG source"
-          #ln -s `which usign` staging_dir/host/bin/usign
-          #echo "$SIGN_KEY" | base64 -d > key-build
-          #make package/index
-          
           OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-$ARCH
           mkdir -p $OUTDIR
           cp -R ./bin/packages/*/base/. $OUTDIR/
@@ -302,6 +340,8 @@ jobs:
 
   release:
       needs: [ check, build ]
+      # Условие для запуска: только если 'should_build' == true
+      if: needs.check.outputs.should_build == 'true'
       permissions:
         contents: write
       runs-on: ubuntu-latest
@@ -344,15 +384,16 @@ jobs:
           echo "Files prepared for release:"
           ls -lh ./release_files/
 
-      - name: Upload individual package files
+      - name: Create or Update Release
         uses: andelf/nightly-release@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.check.outputs.tag }}
         with:
           prerelease: ${{ env.TEST_BUILD == 'true' || env.FAKE_BUILD == 'true' }}
-          tag_name: v${{ needs.build.outputs.pkgver }}${{ env.TAG_SUFFIX }}
-          name: zapret v${{ needs.build.outputs.pkgver }}
+          # Используем тег из Upstream, который мы получили в задаче 'check'
+          tag_name: ${{ needs.check.outputs.tag }}${{ env.TAG_SUFFIX }} 
+          name: zapret ${{ needs.check.outputs.tag }}
           body: |
-            zapret v${{ needs.build.outputs.pkgver }} for OpenWrt
+            Built from upstream release: ${{ needs.check.outputs.tag }}
+            Upstream Release Link: ${{ needs.check.outputs.url }}
           files: ./release_files/*
