@@ -393,6 +393,6 @@ jobs:
           tag_name: ${{ needs.check.outputs.tag }}${{ env.TAG_SUFFIX }} 
           name: zapret ${{ needs.check.outputs.tag }}
           body: |
-            Built from upstream release: ${{ needs.check.outputs.tag }}
+            Automaticaly created build from upstream release: ${{ needs.check.outputs.tag }}
             Upstream Release Link: ${{ needs.check.outputs.url }}
           files: ./release_files/*
