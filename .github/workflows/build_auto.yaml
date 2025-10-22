@@ -1,11 +1,12 @@
-name: Automatic Build
+name: Auto Build Zapret Packages (Upstream Sync)
 
 on:
-  # ЕЖЕДНЕВНЫЙ ЗАПУСК: Проверка upstream-релиза в 03:15 UTC.
+  # ЕЖЕДНЕВНЫЙ ЗАПУСК: Проверка upstream-релиза в 03:15 UTC. 
+  # Сборка запускается только при обнаружении НОВОГО тега.
   schedule:
     - cron: '15 3 * * *' 
   
-  # РУЧНОЙ ЗАПУСК: для тестирования, когда нужно пропустить проверку
+  # РУЧНОЙ ЗАПУСК: для тестирования, всегда запускает сборку.
   workflow_dispatch:
     inputs:
       test_build:
@@ -44,8 +45,6 @@ env:
   MAX_SPEED: ${{ github.event.inputs.max_speed != 'false' }}
   TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
   
-  # REPO_URL был удален, чтобы исправить ошибку. Он будет собран по мере необходимости.
-  
   REPO_BRANCH: master
   BUILD_ROOT: ${{ github.workspace }}/builder
   BUILD_DATE: unknown
@@ -63,7 +62,7 @@ jobs:
       message: ${{ steps.gh_upstream.outputs.message }}
       build_date: ${{ steps.gh_upstream.outputs.build_date }}
       fw_date: ${{ steps.gh_upstream.outputs.fw_date }}
-      is_active: ${{ steps.gh_upstream.outputs.should_build }} # Используем should_build как is_active
+      is_active: ${{ steps.gh_upstream.outputs.should_build }}
       test_build: ${{ env.TEST_BUILD }}
       fake_build: ${{ env.FAKE_BUILD }}
       should_build: ${{ steps.gh_upstream.outputs.should_build }} 
@@ -79,11 +78,10 @@ jobs:
           SHOULD_BUILD=false
           
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            # --- РУЧНОЙ ЗАПУСК ---
+            # --- РУЧНОЙ ЗАПУСК: ВСЕГДА СТРОИМ ---
             echo "Workflow dispatched manually. Forcing build."
             TAG_NAME="manual-build-$(date +%Y%m%d%H%M)"
             
-            # Получаем последние данные коммита из вашего репозитория для информации о SHA
             COMMIT_DATA=$(gh api repos/${{ env.REPO_LNK }}/commits/$REPO_BRANCH)
             COMMIT_SHA=$(echo $COMMIT_DATA | jq -r '.sha[0:7]')
             COMMIT_URL=$(echo $COMMIT_DATA | jq -r '.html_url')
@@ -92,10 +90,10 @@ jobs:
             SHOULD_BUILD=true
             
           elif [ "${{ github.event_name }}" == "schedule" ]; then
-            # --- ЗАПУСК ПО РАСПИСАНИЮ (ПРОВЕРКА) ---
+            # --- ЗАПУСК ПО РАСПИСАНИЮ: ПРОВЕРКА НОВОГО РЕЛИЗА ---
             echo "Checking latest release in ${{ env.UPSTREAM_REPO }}..."
             
-            # Получаем последний РЕЛИЗ (не просто тег) из Upstream
+            # Получаем последний РЕЛИЗ из Upstream
             RELEASE_DATA=$(gh api repos/${{ env.UPSTREAM_REPO }}/releases/latest --jq '{tag_name, target_commitish, published_at, html_url, body}')
             
             UPSTREAM_TAG=$(echo $RELEASE_DATA | jq -r '.tag_name')
@@ -110,7 +108,7 @@ jobs:
             
             echo "Latest Upstream Tag: $UPSTREAM_TAG"
 
-            # Проверяем, существует ли уже релиз с таким же тегом в текущем репозитории (kozhini/zapret)
+            # ПРОВЕРКА СУЩЕСТВОВАНИЯ: Проверяем, существует ли этот тег в ТЕКУЩЕМ репозитории.
             TAG_EXISTS=$(gh api repos/${{ github.repository }}/releases/tags/$UPSTREAM_TAG --silent --fail || echo "NOT_FOUND")
             
             if [ "$TAG_EXISTS" != "NOT_FOUND" ]; then
@@ -388,11 +386,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # ВНИМАНИЕ: Если это запланированный запуск, используем чистый тег Upstream для точного совпадения.
+          # Если это ручной запуск, используем суффикс (TEST_BUILD/FAKE_BUILD).
           prerelease: ${{ env.TEST_BUILD == 'true' || env.FAKE_BUILD == 'true' }}
-          # Используем тег из Upstream, который мы получили в задаче 'check'
-          tag_name: ${{ needs.check.outputs.tag }}${{ env.TAG_SUFFIX }} 
+          tag_name: ${{ needs.check.outputs.tag }}${{ github.event_name == 'workflow_dispatch' && env.TAG_SUFFIX || '' }} 
           name: zapret ${{ needs.check.outputs.tag }}
           body: |
-            Automaticaly created build from upstream release: ${{ needs.check.outputs.tag }}
+            Automatic Build from upstream release: ${{ needs.check.outputs.tag }}
             Upstream Release Link: ${{ needs.check.outputs.url }}
           files: ./release_files/*
+          
