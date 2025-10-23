@@ -1,4 +1,4 @@
-name: Auto Build Zapret Packages (Upstream Sync)
+name: Auto Build Zapret Packages
 
 on:
   # ЕЖЕДНЕВНЫЙ ЗАПУСК: Проверка upstream-релиза в 03:15 UTC. 
@@ -90,7 +90,7 @@ jobs:
             SHOULD_BUILD=true
             
           elif [ "${{ github.event_name }}" == "schedule" ]; then
-            # --- ЗАПУСК ПО РАСПИСАНИЮ: ПРОВЕРКА НОВОГО РЕЛИЗА ---
+            # --- ЗАПУСК ПО РАСПИСАНИЮ: УСИЛЕННАЯ ПРОВЕРКА НОВОГО РЕЛИЗА ---
             echo "Checking latest release in ${{ env.UPSTREAM_REPO }}..."
             
             # Получаем последний РЕЛИЗ из Upstream
@@ -108,14 +108,14 @@ jobs:
             
             echo "Latest Upstream Tag: $UPSTREAM_TAG"
 
-            # ПРОВЕРКА СУЩЕСТВОВАНИЯ: Проверяем, существует ли этот тег в ТЕКУЩЕМ репозитории.
-            TAG_EXISTS=$(gh api repos/${{ github.repository }}/releases/tags/$UPSTREAM_TAG --silent --fail || echo "NOT_FOUND")
+            # 🛑 ФИНАЛЬНАЯ, НАДЕЖНАЯ ПРОВЕРКА: Ищем точное совпадение тега в списке всех релизов.
+            TAG_EXISTS=$(gh api repos/${{ github.repository }}/releases --jq '.[].tag_name' | grep -q "^$UPSTREAM_TAG$" && echo "FOUND" || echo "NOT_FOUND")
             
-            if [ "$TAG_EXISTS" != "NOT_FOUND" ]; then
-              echo "✅ Release tag $UPSTREAM_TAG already exists in ${{ github.repository }}. Skipping build."
+            if [ "$TAG_EXISTS" == "FOUND" ]; then
+              echo "✅ Release tag $UPSTREAM_TAG already exists in ${{ github.repository }} (found in list of releases). Skipping build."
               SHOULD_BUILD=false
             else
-              echo "🚀 New release tag $UPSTREAM_TAG found! Starting build."
+              echo "🚀 New release tag $UPSTREAM_TAG not found locally. Starting build."
               SHOULD_BUILD=true
             fi
           fi
@@ -362,18 +362,28 @@ jobs:
           mkdir -p release_files
           
           find . -type f -name "*.ipk" | while read file; do
-            arch=$(echo "$file" | grep -oP 'zapret,ipk,\K[^/]+')
-            filename=$(basename "$file")
-
-            base="${filename#${arch}_}"
-            base="${base%_${arch}.ipk}"
-
-            if [[ "$base" == luci-app-zapret* ]]; then
-              new_filename="${base}_all.ipk"
+            # Исходное имя файла (например, zapret,ipk,aarch64_cortex-a53/luci-app-zapret_1.0.20251023_all.ipk)
+            full_filename=$(basename "$file")
+            
+            # 1. Удаляем расширение .ipk
+            base_filename=${full_filename%.ipk}
+            
+            # 2. Определяем, является ли пакет архитектурно-независимым (all.ipk)
+            if [[ "$base_filename" == *_all ]]; then
+              # Если это *_all, удаляем "_all" и собираем имя заново
+              base_name_no_arch=${base_filename%_all}
+              new_filename="${base_name_no_arch}_all.ipk"
             else
-              new_filename="${base}_${arch}.ipk"
+              # Если это архитектурно-зависимый пакет. 
+              # Получаем архитектуру из пути артефакта
+              arch=$(echo "$file" | grep -oP 'zapret,ipk,\K[^/]+')
+              
+              # Удаляем суффикс архитектуры из имени файла (например, _aarch64_cortex-a53)
+              base_name_no_arch_and_ext=${full_filename%_${arch}.ipk}
+              
+              new_filename="${base_name_no_arch_and_ext}_${arch}.ipk"
             fi
-
+            
             echo "Copying $file to release_files/$new_filename"
             cp "$file" "release_files/$new_filename"
           done
@@ -386,13 +396,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # ВНИМАНИЕ: Если это запланированный запуск, используем чистый тег Upstream для точного совпадения.
-          # Если это ручной запуск, используем суффикс (TEST_BUILD/FAKE_BUILD).
+          # ВНИМАНИЕ: prerelease true только для ручного запуска (TEST_BUILD/FAKE_BUILD).
           prerelease: ${{ env.TEST_BUILD == 'true' || env.FAKE_BUILD == 'true' }}
+          # Тег: чистый тег Upstream для расписания, с суффиксом для ручного запуска.
           tag_name: ${{ needs.check.outputs.tag }}${{ github.event_name == 'workflow_dispatch' && env.TAG_SUFFIX || '' }} 
           name: zapret ${{ needs.check.outputs.tag }}
           body: |
             Automatic Build from upstream release: ${{ needs.check.outputs.tag }}
             Upstream Release Link: ${{ needs.check.outputs.url }}
           files: ./release_files/*
-          
