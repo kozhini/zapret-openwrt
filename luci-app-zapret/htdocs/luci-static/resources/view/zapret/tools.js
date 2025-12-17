@@ -174,6 +174,12 @@ return baseclass.extend({
         const processed = trim ? rawLines.map(line => line.trim()) : rawLines.slice();
         return removeEmpty ? processed.filter(line => line.length > 0) : processed;
     },
+    
+    getConfigPar: function(txt, key, defval = null) {
+        const re = new RegExp(`^${key}\\s*=\\s*(['"])(.*?)\\1`, 'm');
+        const m = txt.match(re);
+        return m ? m[2] : defval;        
+    },
 
     decode_pkg_list: function(pkg_list) {
         let pkg_dict = { };
@@ -282,7 +288,7 @@ return baseclass.extend({
         return result;
     },
 
-    makeStatusString: function(svcinfo, fwtype, bllist_preset) {
+    makeStatusString: function(svcinfo, pkg_arch, bllist_preset) {
         let svc_autorun = _('Unknown');
         let svc_daemons = _('Unknown');
         
@@ -295,12 +301,18 @@ return baseclass.extend({
                 svc_daemons += ' [' + svcinfo.dmn.working + '/' + svcinfo.dmn.total + ']';
             }
         }
-        let update_mode = _('user entries only');
-        
         let td_name_width = 40;
         let td_name_style = `style="width: ${td_name_width}%; min-width:${td_name_width}%; max-width:${td_name_width}%;"`;
         let out = `
                 <table class="table">
+                    <tr class="tr">
+                        <td class="td left" ${td_name_style}>
+                            ${_('CPU architecture')}:
+                        </td>
+                        <td class="td left">
+                            ${pkg_arch}
+                        </td>
+                    </tr>
                     <tr class="tr">
                         <td class="td left" ${td_name_style}>
                             ${_('Service autorun status')}:
@@ -315,22 +327,6 @@ return baseclass.extend({
                         </td>
                         <td class="td left %s">
                             ${svc_daemons}
-                        </td>
-                    </tr>
-                    <tr class="tr">
-                        <td class="td left" ${td_name_style}>
-                            ${_('FW type')}:
-                        </td>
-                        <td class="td left">
-                            ${fwtype}
-                        </td>
-                    </tr>
-                    <tr class="tr">
-                        <td class="td left" ${td_name_style}>
-                            ${_('HostLists update mode')}:
-                        </td>
-                        <td class="td left">
-                            ${update_mode}
                         </td>
                     </tr>
                     <tr class="tr">
