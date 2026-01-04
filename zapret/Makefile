@@ -4,7 +4,7 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=zapret2
+PKG_NAME:=zapret
 PKG_VERSION:=0.8.20251230
 PKG_RELEASE:=1
 
