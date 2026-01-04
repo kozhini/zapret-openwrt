@@ -36,32 +36,31 @@ document.head.append(E('style', {'type': 'text/css'},
 
 return baseclass.extend({
     packager          : null,
-    appName           : 'zapret',
-    execPath          : '/etc/init.d/zapret',
-    syncCfgPath       : '/opt/zapret/sync_config.sh',
-    defCfgPath        : '/opt/zapret/def-cfg.sh',
-    defaultCfgPath    : '/opt/zapret/restore-def-cfg.sh',
+    appName           : 'zapret2',
+    execPath          : '/etc/init.d/zapret2',
+    syncCfgPath       : '/opt/zapret2/sync_config.sh',
+    defCfgPath        : '/opt/zapret2/def-cfg.sh',
+    defaultCfgPath    : '/opt/zapret2/restore-def-cfg.sh',
 
-    hostsGoogleFN     : '/opt/zapret/ipset/zapret-hosts-google.txt',
-    hostsUserFN       : '/opt/zapret/ipset/zapret-hosts-user.txt',
-    hostsUserExcludeFN: '/opt/zapret/ipset/zapret-hosts-user-exclude.txt',
-    iplstExcludeFN    : '/opt/zapret/ipset/zapret-ip-exclude.txt',
-    iplstUserFN       : '/opt/zapret/ipset/zapret-ip-user.txt',
-    iplstUserExcludeFN: '/opt/zapret/ipset/zapret-ip-user-exclude.txt',
+    hostsGoogleFN     : '/opt/zapret2/ipset/zapret-hosts-google.txt',
+    hostsUserFN       : '/opt/zapret2/ipset/zapret-hosts-user.txt',
+    hostsUserExcludeFN: '/opt/zapret2/ipset/zapret-hosts-user-exclude.txt',
+    iplstExcludeFN    : '/opt/zapret2/ipset/zapret-ip-exclude.txt',
+    iplstUserFN       : '/opt/zapret2/ipset/zapret-ip-user.txt',
+    iplstUserExcludeFN: '/opt/zapret2/ipset/zapret-ip-user-exclude.txt',
     custFileMax       : 4,
-    custFileTemplate  : '/opt/zapret/ipset/cust%s.txt',
+    custFileTemplate  : '/opt/zapret2/ipset/cust%s.txt',
     customdPrefixList : [ 10, 20, 50, 60, 90 ] ,
-    customdFileFormat : '/opt/zapret/init.d/openwrt/custom.d/%s-script.sh',
+    customdFileFormat : '/opt/zapret2/init.d/openwrt/custom.d/%s-script.sh',
     discord_num       : 50,
-    discord_url       : [ 'https://github.com/bol-van/zapret/blob/4e8e3a9ed9dbeb1156db68dfaa7b353051c13797/init.d/custom.d.examples.linux/50-discord',
-                          'https://github.com/bol-van/zapret/blob/b251ea839cc8f04c45090314ef69fce69f2c00f2/init.d/custom.d.examples.linux/50-discord-media',
-                          'https://github.com/bol-van/zapret/blob/b251ea839cc8f04c45090314ef69fce69f2c00f2/init.d/custom.d.examples.linux/50-stun4all',
-                          'https://github.com/bol-van/zapret/tree/master/init.d/custom.d.examples.linux'
+    discord_url       : [ 'https://github.com/bol-van/zapret2/blob/master/init.d/custom.d.examples.linux/50-discord-media',
+                          'https://github.com/bol-van/zapret2/blob/master/init.d/custom.d.examples.linux/50-stun4all',
+                          'https://github.com/bol-van/zapret2/tree/master/init.d/custom.d.examples.linux'
                         ],
-    nfqws_opt_url     : 'https://github.com/remittor/zapret-openwrt/discussions/168',
+    nfqws_opt_url     : 'https://github.com/remittor/zapret-openwrt/discussions/',
 
-    autoHostListFN    : '/opt/zapret/ipset/zapret-hosts-auto.txt',
-    autoHostListDbgFN : '/opt/zapret/ipset/zapret-hosts-auto-debug.log',
+    autoHostListFN    : '/opt/zapret2/ipset/zapret-hosts-auto.txt',
+    autoHostListDbgFN : '/opt/zapret2/ipset/zapret-hosts-auto-debug.log',
 
     infoLabelRunning  : '<span class="label-status running">'  + _('Running')  + '</span>',
     infoLabelStarting : '<span class="label-status starting">' + _('Starting') + '</span>',
@@ -106,11 +105,11 @@ return baseclass.extend({
             if (L.hasSystemFeature('apk')) {
                 this.packager.name = 'apk';
                 this.packager.path = '/usr/bin/apk';
-                this.packager.args = [ 'list', '-I', '*zapret*' ];
+                this.packager.args = [ 'list', '-I', '*zapret2*' ];
             } else {
                 this.packager.name = 'opkg';
                 this.packager.path = '/bin/opkg';
-                this.packager.args = [ 'list-installed', '*zapret*' ];
+                this.packager.args = [ 'list-installed', '*zapret2*' ];
             }
             //console.log('PACKAGER: ' + this.packager.name);
         }
@@ -181,40 +180,49 @@ return baseclass.extend({
         return m ? m[2] : defval;        
     },
 
-    decode_pkg_list: function(pkg_list) {
+    decode_pkg_list: function(pkg_list, with_suffix_r1 = true) {
         let pkg_dict = { };
+        if (!pkg_list) {
+            return pkg_dict;
+        }
         let lines = pkg_list.trim().split('\n');
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i].trim();
             let name;
             let ver;
+            let rev = -1;
             if (this.packager.name == 'apk') {
                 let fullname = line.split(' ')[0];
-                let mpos = fullname.lastIndexOf("-");
-                if (mpos <= 0)
-                    continue;
-                if (fullname.substring(mpos+1, mpos+2) == 'r') {
-                    // release number
-                    fullname = fullname.substring(0, mpos);
+                let match = fullname.match(/^(.*)-r(\d+)$/);
+                if (match) {
+                    fullname = match[1];
+                    rev = parseInt(match[2], 10);
                 }
-                mpos = fullname.lastIndexOf("-");
+                let mpos = fullname.lastIndexOf('-');
                 if (mpos <= 0)
-                    continue;
-                name = fullname.substring(0, mpos).trim();
-                ver = fullname.substring(mpos+1).trim();
+                    continue;   // incorrect format
+                name = fullname.slice(0, mpos).trim();
+                ver = fullname.slice(mpos + 1).trim();
             } else {
                 if (!line.includes(' - '))
-                    continue;
+                    continue;   // incorrect format
                 name = line.split(' - ')[0].trim();
                 ver  = line.split(' - ')[1].trim();
                 let spos = ver.indexOf(" ");
                 if (spos > 0) {
                     ver = ver.substring(0, spos);
                 }
-                let mpos = ver.lastIndexOf("-");
-                if (mpos > 0 && ver.substring(mpos+1, mpos+2) == 'r') {
-                    // release number
-                    ver = ver.substring(0, mpos);
+                let match = ver.match(/^(.*)-r(\d+)$/);
+                if (match) {
+                    ver = match[1];
+                    rev = parseInt(match[2], 10);
+                }
+            }
+            if (rev >= 0) {
+                if (rev == 1 && !with_suffix_r1) {
+                    // nothing
+                } else {
+                    ver += '-r' + rev;
                 }
             }
             pkg_dict[name] = ver;
@@ -262,9 +270,9 @@ return baseclass.extend({
             return -4;
         }
         let jdata = svc_info;
-        if (typeof(jdata.zapret) == 'object') {
+        if (typeof(jdata.zapret2) == 'object') {
             result.dmn.inited = true;
-            let dmn_list = jdata.zapret.instances;
+            let dmn_list = jdata.zapret2.instances;
             if (typeof(dmn_list) == 'object') {
                 for (const [dmn_name, daemon] of Object.entries(dmn_list)) {
                     result.dmn.total += 1;
@@ -395,13 +403,13 @@ return baseclass.extend({
                     E('button', {
                         'id': 'btn_save',
                         'class': 'btn cbi-button-positive important',
-                        'click': ui.createHandlerFn(this, this.handleSave),
+                        'click': ui.createHandlerFn(this, this.handleSaveAdv),
                     }, _('Save')),
                 ]),
             ]);
         },
 
-        handleSave: function(ev) {
+        handleSaveAdv: function(ev) {
             let txt = document.getElementById('widget.modal_content');
             let value = txt.value.trim().replace(/\r\n/g, '\n') + '\n';
 
@@ -461,7 +469,7 @@ return baseclass.extend({
         },
 
         load: function() {
-            let value = uci.get('zapret', this.cfgsec, this.cfgparam);
+            let value = uci.get('zapret2', this.cfgsec, this.cfgparam);
             if (typeof(value) === 'string') {
                 value = value.trim();
                 if (this.multiline == 2) {
@@ -506,13 +514,13 @@ return baseclass.extend({
                     E('button', {
                         'id': 'btn_save',
                         'class': 'btn cbi-button-positive important',
-                        'click': ui.createHandlerFn(this, this.handleSave),
+                        'click': ui.createHandlerFn(this, this.handleSaveAdv),
                     }, _('Save')),
                 ]),
             ]);
         },
 
-        handleSave: function(ev) {
+        handleSaveAdv: function(ev) {
             let txt = document.getElementById('widget.modal_content');
             let value = txt.value.trim();
             if (this.multiline) {
@@ -535,33 +543,33 @@ return baseclass.extend({
             }
             value = value.replace(/˂/g, '<');
             value = value.replace(/˃/g, '>');
-            uci.set('zapret', this.cfgsec, this.cfgparam, value);
-            uci.save();
-            let elem = document.getElementById("cbi-zapret-" + this.cfgsec + "-_" + this.cfgparam);
-            if (elem) {
-                let val = value.trim();
-                if (this.multiline) {
-                    val = val.replace(/</g, '˂');
-                    val = val.replace(/>/g, '˃');
-                    val = val.replace(/\n/g, '<br/>');
-                    elem.querySelector('div').innerHTML = val;
-                } else {
-                    elem.querySelector('div').textContent = val;
+            try {
+                let elem2 = null;
+                let elem = document.getElementById("cbi-zapret-" + this.cfgsec + "-_" + this.cfgparam);
+                if (elem) {
+                    if (!elem2) {
+                        elem2 = elem.querySelector('div');
+                    }
+                    if (!elem2) {
+                        elem2 = elem.querySelector('output');
+                    }
                 }
+                if (elem2) {
+                    let val = value.trim();
+                    if (this.multiline) {
+                        val = val.replace(/</g, '˂');
+                        val = val.replace(/>/g, '˃');
+                        val = val.replace(/\n/g, '<br/>');
+                        elem2.innerHTML = val;
+                    } else {
+                        elem2.textContent = val;
+                    }
+                }
+            } catch(e) {
+                console.error('ERROR: cannot found elem for ' + this.cfgparam);
             }
-            ui.hideModal();
-            /*
-            return uci.save()
-            .then(L.bind(ui.changes.init, ui.changes))
-            .then(L.bind(ui.changes.displayChanges, ui.changes))
-            //.then(L.bind(ui.changes.apply, ui.changes))
-            .then(ui.addNotification(null, E('p', _('Contents have been saved.')), 'info'))
-            .catch(e => {
-                ui.addNotification(null, E('p', _('Unable to save the contents') + ': %s'.format(e.message)));
-            }).finally(() => {
-                ui.hideModal();
-            });
-            */
+            uci.set('zapret2', this.cfgsec, this.cfgparam, value);
+            uci.save().then(ui.hideModal);
         },
 
         error: function(e) {
@@ -580,13 +588,17 @@ return baseclass.extend({
         },
 
         show: function() {
-            //ui.showModal(null, E('p', { 'class': 'spinning' }, _('Loading')) );
-            let content = this.load();
-            //ui.hideModal();
-            if (content === null) {
-                return this.error('Cannot load parameter');
-            }    
-            return this.render(content);
+            ui.showModal(null,
+                E('p', { 'class': 'spinning' }, _('Loading'))
+            );
+            L.resolveDefault(this.load(), null)
+            .then(content => {
+                ui.hideModal();
+                return this.render(content);
+            }).catch(e => {
+                ui.hideModal();
+                return this.error(e);
+            })
         },
     }),
 
