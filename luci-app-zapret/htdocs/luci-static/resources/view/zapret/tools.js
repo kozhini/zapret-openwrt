@@ -17,7 +17,7 @@ const btn_style_success  = 'btn cbi-button-success important';
 const fn_update_pkg_sh   = '/opt/zapret2/update-pkg.sh';
 
 return baseclass.extend({
-    releasesUrlPrefix : 'https://raw.githubusercontent.com/remittor/zapret-openwrt/gh-pages/releases/',
+    releasesUrlPrefix : 'https://raw.githubusercontent.com/kozhin/zapret-openwrt/gh-pages/releases/',
     
     appendLog: function(msg, end = '\n') {
         this.logArea.value += msg + end;
