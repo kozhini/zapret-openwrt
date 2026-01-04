@@ -5,7 +5,7 @@
 'require uci';
 'require ui';
 'require view';
-'require view.zapret.tools as tools';
+'require view.zapret2.tools as tools';
 
 return view.extend({
     parsers: { },
@@ -48,7 +48,7 @@ return view.extend({
 
         let m, s, o, tabname;
 
-        m = new form.Map(tools.appName, _('Zapret') + ' - ' + _('Settings'));
+        m = new form.Map(tools.appName, _('Zapret2') + ' - ' + _('Settings'));
 
         s = m.section(form.NamedSection, 'config');
         s.anonymous = true;
@@ -106,8 +106,8 @@ return view.extend({
 
         /* NFQWS_OPT_DESYNC tab */
 
-        tabname = 'nfqws_params';
-        s.tab(tabname, _('NFQWS options'));
+        tabname = 'nfqws2_params';
+        s.tab(tabname, _('NFQWS2 options'));
 
         let add_delim = function(sec, url = null) {
             let o = sec.taboption(tabname, form.DummyValue, '_hr');
@@ -154,7 +154,7 @@ return view.extend({
             btn.onclick = () => new tools.longstrEditDialog('config', param, param, desc, rows, multiline).show();
         };
 
-        o = s.taboption(tabname, form.Flag, 'NFQWS_ENABLE', _('NFQWS_ENABLE'));
+        o = s.taboption(tabname, form.Flag, 'NFQWS2_ENABLE', _('NFQWS2_ENABLE'));
         o.rmempty = false;
         o.default = 1;
 
@@ -173,40 +173,40 @@ return view.extend({
         o.validate = function(section_id, value) { return true; };
         o.write = function(section_id, value) { return form.Value.prototype.write.call(this, section_id, (value == null || value.trim() == '') ? "\t" : value.trim()); };
         
-        o = s.taboption(tabname, form.Value, 'NFQWS_PORTS_TCP', _('NFQWS_PORTS_TCP'));
+        o = s.taboption(tabname, form.Value, 'NFQWS2_PORTS_TCP', _('NFQWS2_PORTS_TCP'));
         o.rmempty     = false;
         o.datatype    = 'string';
 
-        o = s.taboption(tabname, form.Value, 'NFQWS_PORTS_UDP', _('NFQWS_PORTS_UDP'));
+        o = s.taboption(tabname, form.Value, 'NFQWS2_PORTS_UDP', _('NFQWS2_PORTS_UDP'));
         o.rmempty     = false;
         o.datatype    = 'string';
 
-        o = s.taboption(tabname, form.Value, 'NFQWS_TCP_PKT_OUT', _('NFQWS_TCP_PKT_OUT'));
+        o = s.taboption(tabname, form.Value, 'NFQWS2_TCP_PKT_OUT', _('NFQWS2_TCP_PKT_OUT'));
         o.rmempty     = false;
         o.datatype    = 'string';
 
-        o = s.taboption(tabname, form.Value, 'NFQWS_TCP_PKT_IN', _('NFQWS_TCP_PKT_IN'));
+        o = s.taboption(tabname, form.Value, 'NFQWS2_TCP_PKT_IN', _('NFQWS2_TCP_PKT_IN'));
         o.rmempty     = false;
         o.datatype    = 'string';
 
-        o = s.taboption(tabname, form.Value, 'NFQWS_UDP_PKT_OUT', _('NFQWS_UDP_PKT_OUT'));
+        o = s.taboption(tabname, form.Value, 'NFQWS2_UDP_PKT_OUT', _('NFQWS2_UDP_PKT_OUT'));
         o.rmempty     = false;
         o.datatype    = 'string';
 
-        o = s.taboption(tabname, form.Value, 'NFQWS_UDP_PKT_IN', _('NFQWS_UDP_PKT_IN'));
+        o = s.taboption(tabname, form.Value, 'NFQWS2_UDP_PKT_IN', _('NFQWS2_UDP_PKT_IN'));
         o.rmempty     = false;
         o.datatype    = 'string';
 
-        o = s.taboption(tabname, form.Value, 'NFQWS_PORTS_TCP_KEEPALIVE', _('NFQWS_PORTS_TCP_KEEPALIVE'));
+        o = s.taboption(tabname, form.Value, 'NFQWS2_PORTS_TCP_KEEPALIVE', _('NFQWS2_PORTS_TCP_KEEPALIVE'));
         o.rmempty     = false;
         o.datatype    = 'uinteger';
 
-        o = s.taboption(tabname, form.Value, 'NFQWS_PORTS_UDP_KEEPALIVE', _('NFQWS_PORTS_UDP_KEEPALIVE'));
+        o = s.taboption(tabname, form.Value, 'NFQWS2_PORTS_UDP_KEEPALIVE', _('NFQWS2_PORTS_UDP_KEEPALIVE'));
         o.rmempty     = false;
         o.datatype    = 'uinteger';
 
         add_delim(s, tools.nfqws_opt_url);
-        add_param(s, 'NFQWS_OPT', null, 21, 2);
+        add_param(s, 'NFQWS2_OPT', null, 21, 2);
 
         /* AutoHostList settings */
 
@@ -226,6 +226,14 @@ return view.extend({
         o.write = function(section_id, value) {
             return uci.set(tools.appName, section_id, 'MODE_FILTER', value === '1' ? 'autohostlist' : 'hostlist');
         };
+
+        o = s.taboption(tabname, form.Value, 'AUTOHOSTLIST_INCOMING_MAXSEQ', _('INCOMING_MAXSEQ'));
+        o.rmempty     = false;
+        o.datatype    = 'uinteger';
+
+        o = s.taboption(tabname, form.Value, 'AUTOHOSTLIST_RETRANS_MAXSEQ', _('RETRANS_MAXSEQ'));
+        o.rmempty     = false;
+        o.datatype    = 'uinteger';
         
         o = s.taboption(tabname, form.Value, 'AUTOHOSTLIST_RETRANS_THRESHOLD', _('RETRANS_THRESHOLD'));
         o.rmempty     = false;
@@ -236,6 +244,14 @@ return view.extend({
         o.datatype    = 'uinteger';
 
         o = s.taboption(tabname, form.Value, 'AUTOHOSTLIST_FAIL_TIME', _('FAIL_TIME'));
+        o.rmempty     = false;
+        o.datatype    = 'uinteger';
+
+        o = s.taboption(tabname, form.Value, 'AUTOHOSTLIST_UDP_IN', _('UDP_IN'));
+        o.rmempty     = false;
+        o.datatype    = 'uinteger';
+
+        o = s.taboption(tabname, form.Value, 'AUTOHOSTLIST_UDP_OUT', _('UDP_OUT'));
         o.rmempty     = false;
         o.datatype    = 'uinteger';
 
