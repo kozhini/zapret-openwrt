@@ -1,8 +1,11 @@
 #!/bin/sh
 # Copyright (c) 2025 remittor
 
-. /opt/zapret/comfunc.sh
+EXE_DIR=$(cd "$(dirname "$0")" 2>/dev/null || exit 1; pwd)
+
+. $EXE_DIR/comfunc.sh
 . /usr/share/libubox/jshn.sh
+. /etc/openwrt_release
 
 opt_check=
 opt_prerelease=
@@ -10,34 +13,39 @@ opt_update=
 opt_forced=
 opt_test=
 
-while getopts "cu:pft" opt; do
+while getopts "cu:pft:" opt; do
 	case $opt in
 		c) opt_check=true;;
 		p) opt_prerelease=true;;
 		u) opt_update="$OPTARG";;
 		f) opt_forced=true;;
-		t) opt_test=true;;
+		t) opt_test="$OPTARG";;
 	esac
 done
 
-ZAP_PKG_DIR=/tmp/zapret_pkg
+ZAP_PKG_DIR=/tmp/$ZAPRET_CFG_NAME-pkg
 
-if [ "$opt_test" = "true" ]; then
+if [ "$opt_test" != "" ]; then
 	echo 1; sleep 2;
 	echo 2; sleep 2;
 	echo 3; sleep 2;
 	echo ' * resolve_conffiles 123456'; sleep 1;
 	echo 4; sleep 2; 
 	echo END
-	return 0;
+	return "$opt_test"
 fi
 
 ZAP_CPU_ARCH=$(get_cpu_arch)
-ZAP_REL_URL="https://raw.githubusercontent.com/remittor/zapret-openwrt/gh-pages/releases/releases_zap1_$ZAP_CPU_ARCH.json"
 
-WGET_TIMEOUT=5
-WGET_HEADER1="Accept: application/json"
-WGET_HEADER2="Cache-Control: no-cache"
+if [ $ZAPRET_CFG_NAME = "zapret" ]; then
+	ZAP_REL_URL="https://raw.githubusercontent.com/remittor/zapret-openwrt/gh-pages/releases/releases_zap1_$ZAP_CPU_ARCH.json"
+fi
+if [ $ZAPRET_CFG_NAME = "zapret2" ]; then
+	ZAP_REL_URL="https://raw.githubusercontent.com/remittor/zapret-openwrt/gh-pages/releases/releases_zap2_$ZAP_CPU_ARCH.json"
+fi
+CURL_TIMEOUT=5
+CURL_HEADER1="Accept: application/json"
+CURL_HEADER2="Cache-Control: no-cache"
 
 REL_JSON=
 REL_ACTUAL_TAG=
@@ -47,13 +55,6 @@ REL_ACTUAL_URL=
 ZAP_OUT=
 ZAP_ERR=
 ZAP_PKG_URL=
-
-function download_json
-{
-	local url="$1"
-	wget -q -T "$WGET_TIMEOUT" --header="$WGET_HEADER1" --header="$WGET_HEADER2" -O - "$url"
-	return $?
-}
 
 if command -v apk >/dev/null; then
 	PKG_MGR=apk
@@ -68,10 +69,17 @@ fi
 
 # -------------------------------------------------------------------------------------------------------
 
+function download_json
+{
+	local url="$1"
+	curl -s -L --max-time $CURL_TIMEOUT -H "$CURL_HEADER1" -H "$CURL_HEADER2" "$url" 2>/dev/null
+	return $?
+}
+
 function get_pkg_version
 {
 	local pkg_name="$1"
-	local ver line pkg_prefix
+	local ver line base
 	if [ "$PKG_MGR" = opkg ]; then
 		ver=$( opkg list-installed "$pkg_name" 2>/dev/null | awk -F' - ' '{print $2}' | tr -d '\r' )
 		if [ -n "$ver" ]; then
@@ -80,18 +88,18 @@ function get_pkg_version
 		fi
 	fi
 	if [ "$PKG_MGR" = apk ]; then
-		line=$( apk info -e "$pkg_name" 2>/dev/null || true )
+		line=$( apk info -s "$pkg_name" 2>/dev/null | head -n 1 | awk '{print $1}' || true )
 		if [ -n "$line" ]; then
-			pkg_prefix="${pkg_name}-"
+			base=${line%-r[0-9]*}
+			ver=${base##*-}
 			case "$line" in
-				"$pkg_prefix"*)
-					ver=${line#"$pkg_prefix"}
+				*-r[0-9]*)
+					echo -n "$ver${line#$base}"
 					;;
 				*)
-					ver=${line##*-}
+					echo -n "$ver"
 					;;
 			esac
-			echo -n "$ver"
 			return 0
 		fi
 	fi
@@ -103,9 +111,10 @@ function normalize_version
 {
 	local ver="$1"
 	local base
-	local major minor rel
+	local major minor build rel
+	local old_ifs
 	case "$ver" in
-		*-r*)
+		*-r[0-9]*)
 			rel="${ver##*-r}"
 			base="${ver%-r*}"
 			;;
@@ -114,11 +123,17 @@ function normalize_version
 			base="$ver"
 			;;
 	esac
-	major="${base%%.*}"
-	minor="${base#*.}"
-	[ -z "$minor" ] && minor=0
-	[ -z "$rel" ] && rel=1
-	echo "$major.$minor.$rel"
+	old_ifs="$IFS" ; IFS='.' ; set -- $base ; IFS="$old_ifs"
+	rel=${rel:-1}
+	major=${1:-0}
+	minor=${2:-0}
+	if [ $ZAPRET_CFG_NAME = "zapret" ]; then
+		echo "$major.$minor.$rel"
+	fi
+	if [ $ZAPRET_CFG_NAME = "zapret2" ]; then
+		build=${3:-0}
+		echo "$major.$minor.$build.$rel"
+	fi
 }
 
 function pkg_version_cmp
@@ -136,9 +151,22 @@ function pkg_version_cmp
 	x2=$( echo "$ver2" | cut -d. -f2 )
 	[ "$x1" -gt "$x2" ] && { echo -n "G"; return 0; }
 	[ "$x1" -lt "$x2" ] && { echo -n "L"; return 0; }
+	if [ $ZAPRET_CFG_NAME = "zapret2" ]; then
+		# build
+		x1=$( echo "$ver1" | cut -d. -f3 )
+		x2=$( echo "$ver2" | cut -d. -f3 )
+		[ "$x1" -gt "$x2" ] && { echo -n "G"; return 0; }
+		[ "$x1" -lt "$x2" ] && { echo -n "L"; return 0; }
+	fi
 	# release
-	x1=$( echo "$ver1" | cut -d. -f3 )
-	x2=$( echo "$ver2" | cut -d. -f3 )
+	if [ $ZAPRET_CFG_NAME = "zapret" ]; then
+		x1=$( echo "$ver1" | cut -d. -f3 )
+		x2=$( echo "$ver2" | cut -d. -f3 )
+	fi
+	if [ $ZAPRET_CFG_NAME = "zapret2" ]; then
+		x1=$( echo "$ver1" | cut -d. -f4 )
+		x2=$( echo "$ver2" | cut -d. -f4 )
+	fi
 	[ "$x1" -gt "$x2" ] && { echo -n "G"; return 0; }
 	[ "$x1" -lt "$x2" ] && { echo -n "L"; return 0; }
 	echo -n "E"
@@ -146,15 +174,24 @@ function pkg_version_cmp
 
 function download_releases_info
 {
-	local txt txtlen txtlines generated_at
+	local fname resp hdr txt txtlen txtlines generated_at
 	REL_JSON=
-	echo "CPU arch: $ZAP_CPU_ARCH"
 	echo "Download releases info..."
-	txt=$(download_json $ZAP_REL_URL)
+	fname="${ZAP_REL_URL##*/}"
+	resp=$( curl -s -D - --max-time $CURL_TIMEOUT -H "$CURL_HEADER1" -H "$CURL_HEADER2" "$ZAP_REL_URL" 2>/dev/null )
+	hdr="${resp%%$'\r\n\r\n'*}"
+	status=$( printf '%s\n' "$hdr" | head -n 1 | awk '{print $2}' )
+	if [ "$status" != 200 ]; then
+		echo "ERROR: Cannot download file \"$ZAP_REL_URL\" (status = $status)"
+		return 103
+	fi
+	txtlen=$( printf '%s\n' "$hdr" | awk -F': ' 'BEGIN{IGNORECASE=1} $1=="Content-Length"{print $2}' | tr -d '\r')
+	echo "Content-Length: $txtlen bytes"
+	txt="${resp#*$'\r\n\r\n'}"
 	txtlen=${#txt}
 	txtlines=$(printf '%s\n' "$txt" | wc -l)
 	if [[ $txtlen -lt 64 ]]; then
-		echo "ERROR: Cannot download releases info!"
+		echo "ERROR: Cannot download releases info! (size = $txtlen)"
 		return 104
 	fi
 	echo "Releases info downloaded! Size = $txtlen, Lines = $txtlines"
@@ -222,18 +259,37 @@ function get_actual_release
 	done
 	json_cleanup
 	echo "ERROR: latest release for arch \"$ZAP_CPU_ARCH\" not founded!"
-	return 1  # release not founded
+	return 150  # release not founded
 }
 
 # -------------------------------------------------------------------------------------------------------
 
 if [ "$opt_check" != "true" -a "$opt_update" = "" ]; then
 	echo 'ERROR: Incorrect arguments'
-	return 1
+	return 4
 fi
 
 if [ "$opt_update" = "@" ]; then
 	opt_check="true"
+fi
+
+#echo "DISTRIB_ID: $DISTRIB_ID"
+echo "DISTRIB_RELEASE: $DISTRIB_RELEASE"
+echo "DISTRIB_DESCRIPTION:" $(get_distrib_param DISTRIB_DESCRIPTION)
+echo "DISTRIB_ARCH:" $(get_distrib_param DISTRIB_ARCH)
+
+if ! command -v curl >/dev/null 2>&1; then
+	echo "ERROR: package \"curl\" not installed!"
+	return 10
+fi
+CURL_INFO=$( curl -V )
+if ! echo "$CURL_INFO" | grep -q 'https'; then
+    echo "------- package curl"
+	echo "$CURL_INFO"
+	echo "-------"
+	echo "ERROR: package \"curl\" not supported HTTPS protocol!"
+	echo "NOTE: Please install package \"curl-ssl\""
+	return 11
 fi
 
 if [ "$opt_check" = "true" ]; then
@@ -260,7 +316,7 @@ ZAP_PKG_FN=
 ZAP_PKG_BASE_FN=
 ZAP_PKG_LUCI_FN=
 
-ZAP_CUR_PKG_VER=$( get_pkg_version zapret )
+ZAP_CUR_PKG_VER=$( get_pkg_version $ZAPRET_CFG_NAME )
 echo "Current installed version: $ZAP_CUR_PKG_VER"
 
 if [ "$opt_update" = "" ]; then
@@ -315,9 +371,10 @@ if [ "$opt_update" != "" ]; then
 			return 0
 		fi
 	fi
-	ZAP_PKG_DIR=/tmp/zapret_pkg
-	rm -rf $ZAP_PKG_DIR
-	ZAP_PKG_SIZE=$( wget --spider -T $WGET_TIMEOUT --header="$WGET_HEADER2" -S "$ZAP_PKG_URL" 2>&1 | grep -i 'Content-Length:' | tail -n1 | awk '{print $2}' | tr -d '\r' )
+	ZAP_PKG_DIR=/tmp/$ZAPRET_CFG_NAME-pkg
+	rm -rf $ZAP_PKG_DIR 2>/dev/null
+	ZAP_PKG_HDRS=$( curl -s -I -L --max-time $CURL_TIMEOUT -H "$CURL_HEADER2" "$ZAP_PKG_URL" )
+	ZAP_PKG_SIZE=$( echo "$ZAP_PKG_HDRS" | grep -i 'content-length: ' | tail -n1 | awk '{print $2}' | tr -d '\r' )
 	echo "Downloded ZIP-file size = $ZAP_PKG_SIZE bytes"
 	[ "$ZAP_PKG_SIZE" = "" ] || [[ $ZAP_PKG_SIZE -lt 256 ]] && {
 		echo "ERROR: incorrect package size!"
@@ -326,41 +383,49 @@ if [ "$opt_update" != "" ]; then
 	mkdir $ZAP_PKG_DIR
 	ZAP_PKG_FN="$ZAP_PKG_DIR/${ZAP_PKG_URL##*/}"
 	echo "Download ZIP-file..."
-	wget -q -T 15 --header="$WGET_HEADER2" -O "$ZAP_PKG_FN" "$ZAP_PKG_URL"
+	curl -s -L --max-time 15 -H "$CURL_HEADER2" "$ZAP_PKG_URL" -o "$ZAP_PKG_FN"
 	if [ $? -ne 0 ]; then
 		echo "ERROR: cannot download package!"
 		return 215
 	fi
 	ZAP_PKG_SZ=$( wc -c < "$ZAP_PKG_FN" )
 	if [ "$ZAP_PKG_SZ" != "$ZAP_PKG_SIZE" ]; then
-		echo "ERROR: downloaded package is incorrect!"
+		echo "ERROR: downloaded package is incorrect! (size = $ZAP_PKG_SZ)"
 		return 216
 	fi
+	if ! command -v unzip >/dev/null 2>&1; then
+		echo "ERROR: package \"upzip\" not installed!"
+		return 218
+	fi
 	unzip -q "$ZAP_PKG_FN" -d $ZAP_PKG_DIR
-	rm -f "$ZAP_PKG_FN"
+	rm -f "$ZAP_PKG_FN" 2>/dev/null
 	if [ "$PKG_MGR" = "apk" ]; then
 		if [ ! -d "$ZAP_PKG_DIR/apk" ]; then
 			echo "ERROR: APK-files not founded"
 			return 221
 		fi
-		rm -f "$ZAP_PKG_DIR/*.ipk"
-		mv "$ZAP_PKG_DIR/apk/*" "$ZAP_PKG_DIR/"
+		rm -f $ZAP_PKG_DIR/*.ipk 2>/dev/null
+		mv $ZAP_PKG_DIR/apk/* $ZAP_PKG_DIR/
 	else
-		rm -rf "$ZAP_PKG_DIR/apk"
+		rm -rf $ZAP_PKG_DIR/apk 2>/dev/null
 	fi
 	ZAP_PKG_LIST=$( ls -1 "$ZAP_PKG_DIR" )
 	echo "------ Downloaded packages:"
 	echo "$ZAP_PKG_LIST"
 	echo "------"
-	ZAP_PKG_BASE_FN=$( find "$ZAP_PKG_DIR" -maxdepth 1 -type f -name "zapret_*.${ZAP_PKG_EXT}" | head -n 1 )
-	ZAP_PKG_LUCI_FN=$( find "$ZAP_PKG_DIR" -maxdepth 1 -type f -name "luci-app-*.${ZAP_PKG_EXT}" | head -n 1 )
+	if [ "$PKG_MGR" != "apk" ]; then
+		ZAP_PKG_BASE_FN=$( find "$ZAP_PKG_DIR" -maxdepth 1 -type f -name "${ZAPRET_CFG_NAME}_*.${ZAP_PKG_EXT}" | head -n 1 )
+	else
+		ZAP_PKG_BASE_FN=$( find "$ZAP_PKG_DIR" -maxdepth 1 -type f -name "${ZAPRET_CFG_NAME}-[0-9]*.?*.${ZAP_PKG_EXT}" | head -n 1 )
+	fi
+	ZAP_PKG_LUCI_FN=$( find "$ZAP_PKG_DIR" -maxdepth 1 -type f -name "luci-app-${ZAPRET_CFG_NAME}*.${ZAP_PKG_EXT}" | head -n 1 )
 	if [ ! -f "$ZAP_PKG_BASE_FN" ]; then
-		echo "ERROR: File \"zapret_*.${ZAP_PKG_EXT}\" not found!"
+		echo "ERROR: File \"${ZAPRET_CFG_NAME}*.${ZAP_PKG_EXT}\" not found!"
 		return 231
 	fi
 	echo "ZAP_PKG_BASE_FN = $ZAP_PKG_BASE_FN"
 	if [ ! -f "$ZAP_PKG_LUCI_FN" ]; then
-		echo "ERROR: File \"luci-app-*.${ZAP_PKG_EXT}\" not found!"
+		echo "ERROR: File \"luci-app-${ZAPRET_CFG_NAME}*.${ZAP_PKG_EXT}\" not found!"
 		return 232
 	fi
 	echo "ZAP_PKG_LUCI_FN = $ZAP_PKG_LUCI_FN"
@@ -384,5 +449,4 @@ if [ "$opt_update" != "" ]; then
 		return 247
 	fi
 	echo "RESULT: (+) Packages from $ZAP_PKG_ZIP_NAME successfully installed!"
-	sleep 1
 fi
