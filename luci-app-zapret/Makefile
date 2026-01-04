@@ -4,14 +4,14 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=luci-app-zapret2
+PKG_NAME:=luci-app-zapret
 PKG_VERSION:=0.8.20251230
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=remittor <https://github.com/remittor>
 
 LUCI_TITLE:=LuCI support for zapret2
-LUCI_DEPENDS:=+zapret2
+LUCI_DEPENDS:=+zapret
 LUCI_PKGARCH:=all
 
 define Package/$(PKG_NAME)/postinst
