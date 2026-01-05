@@ -244,7 +244,7 @@ jobs:
               if [ "$ARCH" = "$LUCI_ARCH" ]; then
                   PKGLIST=`echo package/zapret-openwrt/{zapret2,luci-app-zapret2}/compile`
               else
-                  PKGLIST=`echo package/zapret-openwrt/{zapret}/compile`
+                  PKGLIST=`echo package/zapret-openwrt/{zapret2}/compile`
               fi
               if [ "$MAX_SPEED" = "false" ]; then
                   make $PKGLIST V=s CONFIG_CCACHE=1 BUILD_LOG=1
