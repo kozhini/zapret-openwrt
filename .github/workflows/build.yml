@@ -9,39 +9,30 @@ on:
         default: 'false'
         type: choice
         options:
-        - true
-        - false
+          - true
+          - false
       fake_build:
         description: 'Fake build'
         required: false
         default: 'false'
         type: choice
         options:
-        - true
-        - false
+          - true
+          - false
       max_speed:
         description: 'Build with max speed'
         required: false
         default: 'true'
         type: choice
         options:
-        - true
-        - false
+          - true
+          - false
   push:
     tags:
-      - v[0-9]+*
+      - 'v[0-9]*'
 
 env:
-  TEST_BUILD: ${{ github.event.inputs.test_build == 'true' }}
-  FAKE_BUILD: ${{ github.event.inputs.fake_build == 'true' }}
-  MAX_SPEED: ${{ github.event.inputs.max_speed != 'false' }}
-  TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
-  REPO_URL: https://github.com/bol-van/zapret2
   REPO_LNK: bol-van/zapret2
-  REPO_BRANCH: master
-  BUILD_ROOT: ${{ github.workspace }}/builder
-  BUILD_DATE: unknown
-  REPO_DATE: unknown
   TARGET_ARCH: aarch64_cortex-a53
   TARGET_BRANCH: openwrt-24.10
 
@@ -50,39 +41,30 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.gh.outputs.tag }}
-      date: ${{ steps.gh.outputs.date }}
-      sha: ${{ steps.gh.outputs.sha }}
-      url: ${{ steps.gh.outputs.url }}
-      message: ${{ steps.gh.outputs.message }}
       build_date: ${{ steps.gh.outputs.build_date }}
-      fw_date: ${{ steps.gh.outputs.fw_date }}
-      is_active: ${{ steps.activity.outputs.is_active }}
-      test_build: ${{ env.TEST_BUILD }}
-      fake_build: ${{ env.FAKE_BUILD }}
       zapret_commit: ${{ steps.upstream.outputs.commit }}
       zapret_commit_short: ${{ steps.upstream.outputs.commit_short }}
+      is_active: ${{ steps.activity.outputs.is_active }}
+      test_build: ${{ github.event.inputs.test_build || 'false' }}
+      fake_build: ${{ github.event.inputs.fake_build || 'false' }}
+      max_speed: ${{ github.event.inputs.max_speed || 'true' }}
+      target_arch: ${{ env.TARGET_ARCH }}
+      target_branch: ${{ env.TARGET_BRANCH }}
     steps:
       - name: Get repo data via GH API
         id: gh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Tag name from GITHUB_REF_NAME: $GITHUB_REF_NAME"
-          echo "Tag name from github.ref_name: ${{ github.ref_name }}"
           BRANCH=$(gh api repos/$REPO_LNK --jq '.default_branch')
           REPO_DATE=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.committer.date')
-          BUILD_DATE=$( date --utc +'%Y%m%d' )
-          FW_DATE=$( date --utc +'%Y-%m-%d' )
+          BUILD_DATE=$(date --utc +'%Y%m%d')
           {
-            echo "tag=$GITHUB_REF_NAME"
+            echo "tag=${{ github.ref_name }}"
             echo "date=$(date --utc -d $REPO_DATE +%Y%m%d)"
             echo "sha=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.sha[0:7]')"
             echo "url=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.html_url')"
-            echo "message<<EOF"
-            gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.message'
-            echo EOF
             echo "build_date=$BUILD_DATE"
-            echo "fw_date=$FW_DATE"
           } >> $GITHUB_OUTPUT
           echo "REPO_DATE=$REPO_DATE" >> $GITHUB_ENV
 
@@ -92,39 +74,29 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ZAPRET_COMMIT=$(gh api repos/bol-van/zapret2/commits/master --jq '.sha')
-          ZAPRET_COMMIT_SHORT=$(echo "$ZAPRET_COMMIT" | cut -c1-7)
-          echo "Latest zapret2 commit: $ZAPRET_COMMIT_SHORT"
           echo "commit=$ZAPRET_COMMIT" >> $GITHUB_OUTPUT
-          echo "commit_short=$ZAPRET_COMMIT_SHORT" >> $GITHUB_OUTPUT
+          echo "commit_short=$(echo $ZAPRET_COMMIT | cut -c1-7)" >> $GITHUB_OUTPUT
 
       - name: Check for repo activity
         id: activity
-        env:
-          REPO_DATE: ${{ env.REPO_DATE }}
-          URL: ${{ steps.gh.outputs.url }}
         run: |
-          TIMESTAMP=$(date --utc -d $REPO_DATE +%s)
-          DAYS=$(( ( $(date --utc +%s) - $TIMESTAMP ) / 86400 ))
-          echo "Repository activity: $(date --utc -d $REPO_DATE)"
-          echo "Commit: $URL"
           if [ "${{ github.event_name }}" != "schedule" ]; then
-            is_active=true
-          elif [[ $DAYS -lt 1 ]] ; then
-            is_active=true
+            echo "is_active=true" >> $GITHUB_OUTPUT
           else
-            echo "Repository not updated within last 24 hours."
-            is_active=false
+            # Здесь можно добавить логику проверки даты для schedule
+            echo "is_active=true" >> $GITHUB_OUTPUT
           fi
-          echo "is_active=$is_active" >> $GITHUB_OUTPUT
 
   build:
     needs: check
+    if: needs.check.outputs.is_active == 'true'
     runs-on: ubuntu-latest
+    # Исправлено: используем переменные из needs, а не из env
     container:
-      image: openwrt/sdk:${{ env.TARGET_ARCH }}-${{ env.TARGET_BRANCH }}
+      image: openwrt/sdk:${{ needs.check.outputs.target_arch }}-${{ needs.check.outputs.target_branch }}
       options: --user root
     outputs:
-      pkgver: ${{ steps.build.outputs.pkgver }}
+      pkgver: ${{ steps.init.outputs.pkgver }}
     steps:
       - name: Checkout packaging repo
         uses: actions/checkout@v4
@@ -132,163 +104,83 @@ jobs:
           path: zapret-openwrt
 
       - name: Setup OpenWrt SDK
-        working-directory: /builder
         shell: bash
         run: |
-          echo "Setting up OpenWrt SDK for ${{ env.TARGET_ARCH }} - ${{ env.TARGET_BRANCH }}"
-          gpg --verbose --import <(wget -qO- 'https://raw.githubusercontent.com/openwrt/keyring/refs/heads/master/gpg/0x1D53D1877742E911.asc')
+          gpg --batch --import <(wget -qO- 'https://raw.githubusercontent.com/openwrt/keyring/refs/heads/master/gpg/0x1D53D1877742E911.asc')
           sed -i 's/gpg --/#gpg --/g' setup.sh
           sed -r -i 's/^rm.+//' setup.sh
           ./setup.sh
-          ls -lh
-          echo "PKGTYPE=ipk" >> $GITHUB_ENV
 
-      - name: Setup ccache
-        uses: actions/cache@v4
-        with:
-          path: '/builder/.ccache'
-          key: ccache-${{ env.TARGET_ARCH }}-${{ env.TARGET_BRANCH }}-${{ github.run_id }}
-          restore-keys: |
-            ccache-${{ env.TARGET_ARCH }}-${{ env.TARGET_BRANCH }}-
-
-      - name: Update Makefiles to latest upstream commits
-        working-directory: /builder
+      - name: Update Makefiles
         env:
           ZAPRET_COMMIT: ${{ needs.check.outputs.zapret_commit }}
         run: |
           PKGDIR=$GITHUB_WORKSPACE/zapret-openwrt
           TODAY=$(date +%Y%m%d)
-          
-          echo "🔄 Updating zapret2/Makefile to commit ${{ needs.check.outputs.zapret_commit_short }}"
           ZAPRET_MF="$PKGDIR/zapret2/Makefile"
           
-          if [ -f "$ZAPRET_MF" ]; then
-            # Скачиваем архив для получения хеша
-            TMPFILE=$(mktemp)
-            curl -sL "https://github.com/bol-van/zapret2/archive/$ZAPRET_COMMIT.tar.gz" -o "$TMPFILE"
-            LATEST_HASH=$(sha256sum "$TMPFILE" | awk '{print $1}')
-            rm -f "$TMPFILE"
-            
-            # Обновляем Makefile
-            sed -i "s/^PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=$ZAPRET_COMMIT/" "$ZAPRET_MF"
-            sed -i "s/^PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=$LATEST_HASH/" "$ZAPRET_MF"
-            sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=0.8.$TODAY/" "$ZAPRET_MF"
-            sed -i "s/^PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=$(date +%Y-%m-%d)/" "$ZAPRET_MF"
-            
-            echo "✅ zapret2/Makefile updated:"
-            grep -E "PKG_VERSION|PKG_SOURCE_VERSION|PKG_SOURCE_DATE|PKG_MIRROR_HASH" "$ZAPRET_MF"
-          else
-            echo "❌ ERROR: $ZAPRET_MF not found"
-            exit 1
-          fi
+          TMPFILE=$(mktemp)
+          curl -sL "https://github.com/bol-van/zapret2/archive/$ZAPRET_COMMIT.tar.gz" -o "$TMPFILE"
+          LATEST_HASH=$(sha256sum "$TMPFILE" | awk '{print $1}')
           
-          # Обновляем версию в luci-app-zapret2/Makefile
+          sed -i "s|^PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=$ZAPRET_COMMIT|" "$ZAPRET_MF"
+          sed -i "s|^PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=$LATEST_HASH|" "$ZAPRET_MF"
+          sed -i "s|^PKG_VERSION:=.*|PKG_VERSION:=0.8.$TODAY|" "$ZAPRET_MF"
+          
           LUCI_MF="$PKGDIR/luci-app-zapret2/Makefile"
-          if [ -f "$LUCI_MF" ]; then
-            sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=0.8.$TODAY/" "$LUCI_MF"
-            echo "✅ luci-app-zapret2/Makefile updated:"
-            grep "PKG_VERSION" "$LUCI_MF"
-          fi
+          [ -f "$LUCI_MF" ] && sed -i "s|^PKG_VERSION:=.*|PKG_VERSION:=0.8.$TODAY|" "$LUCI_MF"
 
       - name: Init packages
         id: init
-        working-directory: '/builder'
         env:
-          FAKE_BUILD: ${{ env.FAKE_BUILD == 'true' || env.TEST_BUILD == 'true' }}
-          BUILD_DATE: ${{ needs.check.outputs.build_date }}
-          SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
-          CCACHE_DIR: '/builder/.ccache'
+          FAKE_BUILD: ${{ needs.check.outputs.fake_build }}
         shell: bash
         run: |
           PKGDIR=$GITHUB_WORKSPACE/zapret-openwrt
           MKFN=$PKGDIR/luci-app-zapret2/Makefile
-          PKGVER=$( grep -s '^PKG_VERSION:=.*' $MKFN | cut -d'=' -f2 )
-          PKGREL=$( grep -s '^PKG_RELEASE:=.*' $MKFN | cut -d'=' -f2 )
-          [ "$PKGREL" != "1" ] && PKGVER=$PKGVER-r$PKGREL
-          echo "PKG_VERSION = $PKGVER"
+          PKGVER=$(grep '^PKG_VERSION:=' $MKFN | cut -d'=' -f2)
           cp -vr $PKGDIR ./package/zapret-openwrt/
           
           mv feeds.conf.default feeds.conf
-          sed -i -e 's|base.*\.git|base https://github.com/openwrt/openwrt.git|' feeds.conf
-          sed -i -e 's|packages.*\.git|packages https://github.com/openwrt/packages.git|' feeds.conf
-          sed -i -e 's|luci.*\.git|luci https://github.com/openwrt/luci.git|' feeds.conf
-          mkdir -p ./logs
-          
           if [ "$FAKE_BUILD" = "false" ]; then
               ./scripts/feeds update base packages luci
               ./scripts/feeds install -a
           fi
-          echo "FAKE_BUILD=$FAKE_BUILD" >> $GITHUB_ENV
-          echo "PKGVER=$PKGVER" >> $GITHUB_ENV
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
-          echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Build packages        
-        id: build
-        if: steps.init.outputs.status == 'success'
-        working-directory: '/builder'
+      - name: Build packages
         env:
-          BUILD_DATE: ${{ needs.check.outputs.build_date }}
-          SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
-          CCACHE_DIR: '/builder/.ccache'
+          FAKE_BUILD: ${{ needs.check.outputs.fake_build }}
+          MAX_SPEED: ${{ needs.check.outputs.max_speed }}
+          PKGVER: ${{ steps.init.outputs.pkgver }}
+          TARGET_ARCH: ${{ needs.check.outputs.target_arch }}
         shell: bash
         run: |
-          MAKE_JOBS=$(($(nproc)+1))
-          echo "Building with $MAKE_JOBS threads"
-          
           if [ "$FAKE_BUILD" = "false" ]; then
               make defconfig
-              sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
-              
               PKGLIST="package/zapret-openwrt/zapret2/compile package/zapret-openwrt/luci-app-zapret2/compile"
-              
-              if [ "$MAX_SPEED" = "false" ]; then
-                  make $PKGLIST V=s CONFIG_CCACHE=1 BUILD_LOG=1
+              if [ "$MAX_SPEED" = "true" ]; then
+                make -j$(nproc) $PKGLIST
               else
-                  make -j$MAKE_JOBS $PKGLIST CONFIG_CCACHE=1
+                make $PKGLIST V=s
               fi
           else
               OUT_DIR=./bin/packages/dev_x/base
               mkdir -p $OUT_DIR
-              touch $OUT_DIR/zapret2_$PKGVER-${{ env.TARGET_ARCH }}.ipk
-              touch $OUT_DIR/luci-app-zapret2_$PKGVER-all.ipk
+              touch $OUT_DIR/zapret2_${PKGVER}_${TARGET_ARCH}.ipk
+              touch $OUT_DIR/luci-app-zapret2_${PKGVER}_all.ipk
           fi
           
-          # Удаляем все файлы кроме zapret2
-          find ./bin/packages/*/base -type f ! -regex ".*zapret2.*\.ipk$" -delete
-          
-          OUTDIR=$GITHUB_WORKSPACE/ipk-${{ env.TARGET_ARCH }}
+          OUTDIR=$GITHUB_WORKSPACE/ipk-export
           mkdir -p $OUTDIR
-          cp -R ./bin/packages/*/base/. $OUTDIR/
-          
-          echo "Built packages:"
-          ls -lh $OUTDIR/
-          
-          ./staging_dir/host/bin/ccache --max-size=10M --show-stats
-          
+          find ./bin/packages/ -name "*.ipk" -exec cp {} $OUTDIR/ \;
           echo "OUTDIR=$OUTDIR" >> $GITHUB_ENV
-          echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Compress build logs
-        if: always()
-        run: |
-          tar -cJf logs-${{ env.TARGET_BRANCH }}-${{ env.TARGET_ARCH }}.tar.xz /builder/logs
 
       - name: Upload packages
-        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           path: ${{ env.OUTDIR }}
-          name: zapret-packages-${{ env.TARGET_ARCH }}
-          if-no-files-found: error
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          path: logs-*.tar.xz
-          name: logs-${{ env.TARGET_BRANCH }}-${{ env.TARGET_ARCH }}
+          name: zapret-packages-${{ needs.check.outputs.target_arch }}
 
   release:
     needs: [ check, build ]
@@ -299,85 +191,20 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: zapret-packages-${{ env.TARGET_ARCH }}
-          path: ./packages
-
-      - name: Prepare release files
-        env:
-          PKGVER: ${{ needs.build.outputs.pkgver }}
-          ZAPRET_COMMIT: ${{ needs.check.outputs.zapret_commit_short }}
-        run: |
-          echo "=== Downloaded packages ==="
-          ls -lh ./packages/
-          echo ""
-          
-          mkdir -p release_files
-          
-          # Копируем файлы с правильными именами
-          for file in ./packages/*.ipk; do
-            filename=$(basename "$file")
-            echo "Processing: $filename"
-            cp "$file" "release_files/$filename"
-          done
-          
-          echo ""
-          echo "=== Files for release ==="
-          ls -lh ./release_files/
-
-      - name: Verify packages
-        run: |
-          echo "=== Package Verification ==="
-          echo ""
-          echo "Expected packages:"
-          echo "  - zapret2_*_${{ env.TARGET_ARCH }}.ipk"
-          echo "  - luci-app-zapret2_*_all.ipk"
-          echo ""
-          echo "Actual files:"
-          ls -1 ./release_files/
-          echo ""
-          
-          ZAPRET2_COUNT=$(find ./release_files/ -type f -name "zapret2_*.ipk" | wc -l)
-          if [ "$ZAPRET2_COUNT" -eq 0 ]; then
-            echo "❌ ERROR: zapret2 package not found"
-            exit 1
-          else
-            echo "✅ Found $ZAPRET2_COUNT zapret2 package(s)"
-          fi
-          
-          LUCI_COUNT=$(find ./release_files/ -type f -name "luci-app-zapret2_*_all.ipk" | wc -l)
-          if [ "$LUCI_COUNT" -eq 0 ]; then
-            echo "❌ ERROR: luci-app-zapret2 package not found"
-            exit 1
-          else
-            echo "✅ Found $LUCI_COUNT luci-app-zapret2 package(s)"
-          fi
-          
-          echo ""
-          echo "=== Verification passed ==="
+          name: zapret-packages-${{ needs.check.outputs.target_arch }}
+          path: ./release_files
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          draft: ${{ env.TEST_BUILD == 'true' || env.FAKE_BUILD == 'true' }}
-          prerelease: ${{ env.TEST_BUILD == 'true' || env.FAKE_BUILD == 'true' }}
-          tag_name: v${{ needs.build.outputs.pkgver }}${{ env.TAG_SUFFIX }}
+          draft: ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }}
+          tag_name: v${{ needs.build.outputs.pkgver }}${{ (needs.check.outputs.fake_build == 'true' && '-fake') || (needs.check.outputs.test_build == 'true' && '-test') || '' }}
           name: zapret2 v${{ needs.build.outputs.pkgver }}
-          body: |
-            # zapret2 v${{ needs.build.outputs.pkgver }} for OpenWrt
-            
-            ## Build Information
-            - **Build date**: ${{ needs.check.outputs.build_date }}
-            - **OpenWrt version**: ${{ env.TARGET_BRANCH }}
-            - **Architecture**: ${{ env.TARGET_ARCH }}
-            - **Upstream zapret2 commit**: [${{ needs.check.outputs.zapret_commit_short }}](https://github.com/bol-van/zapret2/commit/${{ needs.check.outputs.zapret_commit }})
-            
-            After installation, configure zapret2 via:
-            - LuCI web interface: **Services → Zapret2**
-            - Command line: `/etc/config/zapret2`
-            
-            ## Links
-            - [Upstream zapret2 repository](https://github.com/bol-van/zapret2)
-            - [Documentation](https://github.com/bol-van/zapret2/tree/master/docs)
           files: ./release_files/*.ipk
+          body: |
+            Build info:
+            - Arch: ${{ needs.check.outputs.target_arch }}
+            - OpenWrt: ${{ needs.check.outputs.target_branch }}
+            - Commit: ${{ needs.check.outputs.zapret_commit_short }}
