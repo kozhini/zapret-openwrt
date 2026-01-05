@@ -1,4 +1,4 @@
-name: Manuial build
+name: Manual build
 
 on:
   workflow_dispatch:
@@ -105,7 +105,6 @@ jobs:
 
   build:
     needs: check
-    #if: needs.check.outputs.is_active == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -113,10 +112,6 @@ jobs:
         branch: [ openwrt-24.10 ]
         arch:
           - aarch64_cortex-a53
-        isTestOrFake:
-          - ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }}
-        exclude:
-          - { isTestOrFake: true }
     container:
       image: openwrt/sdk:${{ matrix.arch }}-${{ matrix.branch }}
       options: --user root
@@ -129,18 +124,16 @@ jobs:
           repository: ${{ env.REPO_LNK }}
           path: zapret-openwrt
 
-
       - name: Setup OpenWrt SDK
         working-directory: /builder
         env:
           BRANCH: ${{ matrix.branch }}
         shell: bash
         run: |
-          # gpg --verbose --recv-keys 0x1D53D1877742E911
+          # Import GPG key
           gpg --verbose --import <(wget -qO- 'https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc')
-          # disable check signatures
+          # Disable signature check and cleanup
           sed -i 's/gpg --/#gpg --/g' setup.sh
-          # disable cleanup keys
           sed -r -i 's/^rm.+//' setup.sh
           ./setup.sh
           ls -lh
@@ -156,10 +149,8 @@ jobs:
               REPO_URL=$(grep -E "^PKG_SOURCE_URL.*=" "$mf" | sed -E 's/.*= *//')
               echo "🔄 Updating $mf from $REPO_URL"
 
+              # Определяем ветку для каждого Makefile
               case "$mf" in
-                *zapret-ip2net/Makefile)
-                  LATEST_COMMIT=$(git ls-remote "$REPO_URL" HEAD | cut -f1)
-                  ;;
                 *luci-app-zapret/Makefile)
                   LATEST_COMMIT=$(git ls-remote "$REPO_URL" master | cut -f1)
                   ;;
@@ -185,7 +176,6 @@ jobs:
             echo "✅ $mf updated:"
             grep -E "PKG_VERSION|PKG_SOURCE_VERSION|PKG_MIRROR_HASH" "$mf" || true
           done
-
 
       - name: Init packages
         id: init
@@ -260,11 +250,6 @@ jobs:
           
           find ./bin/packages/*/base -type f ! -regex ".*\(zapret\).*\.ipk$" -delete
           
-          #echo ">>>>>>> build a repository index to make the output directory usable as local OPKG source"
-          #ln -s `which usign` staging_dir/host/bin/usign
-          #echo "$SIGN_KEY" | base64 -d > key-build
-          #make package/index
-          
           OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-$ARCH
           mkdir -p $OUTDIR
           cp -R ./bin/packages/*/base/. $OUTDIR/
@@ -322,25 +307,75 @@ jobs:
           
           mkdir -p release_files
           
+          # Обрабатываем все .ipk файлы
           find . -type f -name "*.ipk" | while read file; do
+            # Извлекаем архитектуру из пути
             arch=$(echo "$file" | grep -oP 'zapret,ipk,\K[^/]+')
             filename=$(basename "$file")
-
-            base="${filename#${arch}_}"
-            base="${base%_${arch}.ipk}"
-
+            
+            echo "Processing: $filename (arch: $arch)"
+            
+            # Удаляем расширение .ipk
+            base="${filename%.ipk}"
+            
+            # Удаляем префикс архитектуры если есть
+            base="${base#${arch}_}"
+            
+            # Удаляем суффикс архитектуры если есть
+            base="${base%_${arch}}"
+            
+            # Удаляем суффикс _all если есть
+            base="${base%_all}"
+            
+            # Определяем финальное имя файла
             if [[ "$base" == luci-app-zapret* ]]; then
+              # LuCI приложения независимы от архитектуры
               new_filename="${base}_all.ipk"
             else
+              # Бинарные пакеты зависят от архитектуры
               new_filename="${base}_${arch}.ipk"
             fi
-
-            echo "Copying $file to release_files/$new_filename"
+            
+            echo "  -> Copying to: $new_filename"
             cp "$file" "release_files/$new_filename"
           done
           
+          echo ""
           echo "Files prepared for release:"
           ls -lh ./release_files/
+
+      - name: Verify packages
+        run: |
+          echo "=== Package Verification ==="
+          echo ""
+          echo "Expected packages:"
+          echo "  - zapret2_*_*.ipk"
+          echo "  - luci-app-zapret2_*_all.ipk"
+          echo ""
+          echo "Actual files:"
+          ls -1 ./release_files/
+          echo ""
+          
+          # Проверяем наличие базового пакета zapret2
+          ZAPRET2_COUNT=$(find ./release_files/ -type f -name "zapret2_*.ipk" | wc -l)
+          if [ "$ZAPRET2_COUNT" -eq 0 ]; then
+            echo "❌ ERROR: zapret2 package not found"
+            exit 1
+          else
+            echo "✅ Found $ZAPRET2_COUNT zapret2 package(s)"
+          fi
+          
+          # Проверяем наличие luci-app пакета
+          LUCI_COUNT=$(find ./release_files/ -type f -name "luci-app-zapret2_*_all.ipk" | wc -l)
+          if [ "$LUCI_COUNT" -eq 0 ]; then
+            echo "❌ ERROR: luci-app-zapret2 package not found"
+            exit 1
+          else
+            echo "✅ Found $LUCI_COUNT luci-app-zapret2 package(s)"
+          fi
+          
+          echo ""
+          echo "=== Verification passed ==="
 
       - name: Upload individual package files
         uses: andelf/nightly-release@main
@@ -353,4 +388,11 @@ jobs:
           name: zapret v${{ needs.build.outputs.pkgver }}
           body: |
             zapret v${{ needs.build.outputs.pkgver }} for OpenWrt
+            
+            **Build Information:**
+            - Build date: ${{ needs.check.outputs.build_date }}
+            - Repository: ${{ env.REPO_LNK }}
+            - Commit: ${{ needs.check.outputs.sha }}
+            - Branch: ${{ env.REPO_BRANCH }}
+
           files: ./release_files/*
