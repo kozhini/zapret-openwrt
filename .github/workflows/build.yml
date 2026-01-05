@@ -59,13 +59,8 @@ jobs:
           BRANCH=$(gh api repos/$REPO_LNK --jq '.default_branch')
           REPO_DATE=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.committer.date')
           BUILD_DATE=$(date --utc +'%Y%m%d')
-          {
-            echo "tag=${{ github.ref_name }}"
-            echo "date=$(date --utc -d $REPO_DATE +%Y%m%d)"
-            echo "sha=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.sha[0:7]')"
-            echo "url=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.html_url')"
-            echo "build_date=$BUILD_DATE"
-          } >> $GITHUB_OUTPUT
+          echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
           echo "REPO_DATE=$REPO_DATE" >> $GITHUB_ENV
 
       - name: Get upstream zapret2 latest commit
@@ -80,18 +75,12 @@ jobs:
       - name: Check for repo activity
         id: activity
         run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "is_active=true" >> $GITHUB_OUTPUT
-          else
-            # Здесь можно добавить логику проверки даты для schedule
-            echo "is_active=true" >> $GITHUB_OUTPUT
-          fi
+          echo "is_active=true" >> $GITHUB_OUTPUT
 
   build:
     needs: check
     if: needs.check.outputs.is_active == 'true'
     runs-on: ubuntu-latest
-    # Исправлено: используем переменные из needs, а не из env
     container:
       image: openwrt/sdk:${{ needs.check.outputs.target_arch }}-${{ needs.check.outputs.target_branch }}
       options: --user root
@@ -104,34 +93,35 @@ jobs:
           path: zapret-openwrt
 
       - name: Setup OpenWrt SDK
+        working-directory: /builder
         shell: bash
         run: |
-          gpg --batch --import <(wget -qO- 'https://raw.githubusercontent.com/openwrt/keyring/refs/heads/master/gpg/0x1D53D1877742E911.asc')
+          gpg --batch --import <(wget -qO- 'https://raw.githubusercontent.com/openwrt/keyring/refs/heads/master/gpg/0x1D53D1877742E911.asc') || true
           sed -i 's/gpg --/#gpg --/g' setup.sh
           sed -r -i 's/^rm.+//' setup.sh
           ./setup.sh
+          echo "PKGTYPE=ipk" >> $GITHUB_ENV
 
       - name: Update Makefiles
+        working-directory: /builder
         env:
           ZAPRET_COMMIT: ${{ needs.check.outputs.zapret_commit }}
         run: |
           PKGDIR=$GITHUB_WORKSPACE/zapret-openwrt
           TODAY=$(date +%Y%m%d)
           ZAPRET_MF="$PKGDIR/zapret2/Makefile"
-          
           TMPFILE=$(mktemp)
           curl -sL "https://github.com/bol-van/zapret2/archive/$ZAPRET_COMMIT.tar.gz" -o "$TMPFILE"
           LATEST_HASH=$(sha256sum "$TMPFILE" | awk '{print $1}')
-          
           sed -i "s|^PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=$ZAPRET_COMMIT|" "$ZAPRET_MF"
           sed -i "s|^PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=$LATEST_HASH|" "$ZAPRET_MF"
           sed -i "s|^PKG_VERSION:=.*|PKG_VERSION:=0.8.$TODAY|" "$ZAPRET_MF"
-          
           LUCI_MF="$PKGDIR/luci-app-zapret2/Makefile"
           [ -f "$LUCI_MF" ] && sed -i "s|^PKG_VERSION:=.*|PKG_VERSION:=0.8.$TODAY|" "$LUCI_MF"
 
       - name: Init packages
         id: init
+        working-directory: /builder
         env:
           FAKE_BUILD: ${{ needs.check.outputs.fake_build }}
         shell: bash
@@ -139,8 +129,8 @@ jobs:
           PKGDIR=$GITHUB_WORKSPACE/zapret-openwrt
           MKFN=$PKGDIR/luci-app-zapret2/Makefile
           PKGVER=$(grep '^PKG_VERSION:=' $MKFN | cut -d'=' -f2)
-          cp -vr $PKGDIR ./package/zapret-openwrt/
-          
+          mkdir -p ./package/zapret-openwrt
+          cp -vr $PKGDIR/* ./package/zapret-openwrt/
           mv feeds.conf.default feeds.conf
           if [ "$FAKE_BUILD" = "false" ]; then
               ./scripts/feeds update base packages luci
@@ -149,6 +139,7 @@ jobs:
           echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
 
       - name: Build packages
+        working-directory: /builder
         env:
           FAKE_BUILD: ${{ needs.check.outputs.fake_build }}
           MAX_SPEED: ${{ needs.check.outputs.max_speed }}
@@ -159,27 +150,22 @@ jobs:
           if [ "$FAKE_BUILD" = "false" ]; then
               make defconfig
               PKGLIST="package/zapret-openwrt/zapret2/compile package/zapret-openwrt/luci-app-zapret2/compile"
-              if [ "$MAX_SPEED" = "true" ]; then
-                make -j$(nproc) $PKGLIST
-              else
-                make $PKGLIST V=s
-              fi
+              [ "$MAX_SPEED" = "true" ] && make -j$(nproc) $PKGLIST || make $PKGLIST V=s
           else
-              OUT_DIR=./bin/packages/dev_x/base
+              OUT_DIR=./bin/packages/dev/base
               mkdir -p $OUT_DIR
               touch $OUT_DIR/zapret2_${PKGVER}_${TARGET_ARCH}.ipk
               touch $OUT_DIR/luci-app-zapret2_${PKGVER}_all.ipk
           fi
-          
-          OUTDIR=$GITHUB_WORKSPACE/ipk-export
-          mkdir -p $OUTDIR
-          find ./bin/packages/ -name "*.ipk" -exec cp {} $OUTDIR/ \;
-          echo "OUTDIR=$OUTDIR" >> $GITHUB_ENV
+          EXPORT_DIR=$GITHUB_WORKSPACE/ipk-export
+          mkdir -p $EXPORT_DIR
+          find ./bin/packages/ -name "*.ipk" -exec cp {} $EXPORT_DIR/ \;
+          echo "OUTDIR=$EXPORT_DIR" >> $GITHUB_ENV
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          path: ${{ env.OUTDIR }}
+          path: ipk-export
           name: zapret-packages-${{ needs.check.outputs.target_arch }}
 
   release:
@@ -204,7 +190,7 @@ jobs:
           name: zapret2 v${{ needs.build.outputs.pkgver }}
           files: ./release_files/*.ipk
           body: |
-            Build info:
-            - Arch: ${{ needs.check.outputs.target_arch }}
-            - OpenWrt: ${{ needs.check.outputs.target_branch }}
-            - Commit: ${{ needs.check.outputs.zapret_commit_short }}
+            ## Build Information
+            - **Arch**: ${{ needs.check.outputs.target_arch }}
+            - **SDK**: ${{ needs.check.outputs.target_branch }}
+            - **Upstream Commit**: ${{ needs.check.outputs.zapret_commit_short }}
