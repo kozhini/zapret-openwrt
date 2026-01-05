@@ -4,7 +4,7 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=luci-app-zapret
+PKG_NAME:=luci-app-zapret2
 PKG_VERSION:=0.8.20251230
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
