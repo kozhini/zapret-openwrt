@@ -242,7 +242,7 @@ jobs:
               cat .config
               echo "------------- .config END -------------------"
               if [ "$ARCH" = "$LUCI_ARCH" ]; then
-                  PKGLIST=`echo package/zapret-openwrt/{zapret,luci-app-zapret}/compile`
+                  PKGLIST=`echo package/zapret-openwrt/{zapret2,luci-app-zapret2}/compile`
               else
                   PKGLIST=`echo package/zapret-openwrt/{zapret}/compile`
               fi
@@ -254,7 +254,7 @@ jobs:
           else
               OUT_DIR=./bin/packages/dev_x/base
               mkdir -p $OUT_DIR
-              touch $OUT_DIR/zapret_$PKGVER-$ARCH.ipk
+              touch $OUT_DIR/zapret2_$PKGVER-$ARCH.ipk
               touch $OUT_DIR/luci-app-zapret2_$PKGVER-all.ipk
           fi
           
